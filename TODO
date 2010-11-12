@@ -1,0 +1,20 @@
+# -*- mode: Org; -*-
+
+* General concept
+  Simple text-based multiplayer shooter.
+  Client-server mechanism based on binary protocol.
+  
+* Closer details
+** Server
+
+   players list -+-> player 1 -> recieve data and insert into messages queue
+   (slots)       +-> player 2 <-.                    |
+                 +-> ...        |                    |
+                 '-> player n   |                    |
+                                |            ________V_______
+   world -> messages queue manager <------- ( messages queue )
+            Fetch messages then update       ----------------
+            world and send them to players. 
+
+            
+            
