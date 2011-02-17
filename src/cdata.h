@@ -27,7 +27,7 @@ struct msgtype_walk {
 };
 
 struct msgtype_shoot {
-    uint16_t gun_type;
+    uint8_t gun_type;
 };
 
 /*
@@ -77,7 +77,8 @@ struct msg_batch {
 #define MAX_PLAYERS 16
 
 struct player {
-    uint32_t some;
+    struct sockaddr_in addr;
+    struct socklen_t addr_len;
 };
 
 #define TPS 5 /* Ticks per second. */

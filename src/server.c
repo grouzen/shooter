@@ -8,11 +8,16 @@
 
 #include "cdata.h"
 
-#define MAX_RECVBUFLEN 64
 #define MSGQUEUE_INIT_SIZE 64
 
+struct msg_queue_node {
+    struct msg *data;
+    struct sockaddr_in *addr;
+    struct socklen_t *addr_len;
+};
+
 struct msg_queue {
-    struct msg *data[MSGQUEUE_INIT_SIZE];
+    struct msg_queue_node *nodes;
     ssize_t top;
 };
 
@@ -27,7 +32,10 @@ void msgqueue_init(struct msg_queue *q)
 
     q = malloc(sizeof(struct msg_queue));
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        q->data[i] = malloc(sizeof(struct msg));
+        q->nodes[i] = malloc(sizeof(struct msg_queue_node));
+        q->nodes[i]->data = malloc(sizeof(struct msg));
+        q->nodes[i]->addr = malloc(sizeof(struct sockaddr_in));
+        q->nodes[i]->addr_len = malloc(sizeof(struct socklen_t));
     }
     memset(q->data, 0, sizeof(struct msg) * MSGQUEUE_INIT_SIZE);
 
@@ -39,26 +47,32 @@ void msgqueue_clean(struct msg_queue *q)
     int i;
 
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        free(q->data[i]);
+        free(q->nodes[i]->data);
+        free(q->nodes[i]->addr);
+        free(q->nodes[i]->addr_len);
+        free(q->nodes[i]);
     }
     
    free(q);
 }
 
-msg_queue_enum_t msgqueue_push(struct msg_queue *q, uint8_t *buf)
+msg_queue_enum_t msgqueue_push(struct msg_queue *q, uint8_t *buf,
+                               struct sockaddr_in *addr, struct socklen_t *addr_len)
 {
     if(msgqueue->top < MSGQUEUE_INIT_SIZE - 1) {
-        msg_unpack(buf, q->top++);
+        msg_unpack(buf, q->nodes[top++]->data);
+        memcpy(q->nodes->addr, addr, sizeof(struct sockaddr_in));
+        memcpy(q->nodes->addr_len, addr_len, sizeof(struct socklen_t));
         return MSGQUEUE_OK;
     }
 
     return MSGQUEUE_ERROR;
 }
 
-struct msg *msgqueue_pop(struct msg_queue *q)
+struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
 {
-    if(msgqueue->top) {
-        return msgqueue->data[msgqueue->top--];
+    if(q->top) {
+        return q->nodes[msgqueue->top--];
     }
 
     return NULL;
@@ -78,11 +92,12 @@ uint64_t queue_mngr_ticks;
 void *recv_mngr_func(void *arg)
 {
     int sd;
-    uint8_t buf[MAX_RECVBUFLEN];
+    uint8_t buf[sizeof(struct msg)];
     ssize_t recvbytes;
     struct sockaddr_in server_addr, client_addr;
     struct socklen_t client_addr_len;
 
+    memset(buf, 0, sizeof(struct msg));
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(6006);
@@ -105,17 +120,19 @@ void *recv_mngr_func(void *arg)
             pthread_cond_signal(&queue_mngr_cond);
         }
         
-        if((recvbytes = recvfrom(sd, buf, MAX_RECVBUFLEN, 0,
-                                 (struct sockaddr *) &server_addr,
+        if((recvbytes = recvfrom(sd, buf, sizeof(struct msg), 0,
+                                 (struct sockaddr *) &client_addr,
                                  &client_addr_len)) < 0) {
             perror("server: recvfrom");
         }
         
         pthread_mutex_lock(&queue_mngr_mutex);
-        if(msgqueue_push(msgqueue, buf) == MSGQUEUE_ERROR) {
+        if(msgqueue_push(msgqueue, buf, &client_addr, &client_addr_len) == MSGQUEUE_ERROR) {
             fprintf(stderr, "server: recvfrom: couldn't push data into queue.\n");
         }
         pthread_mutex_unlock(&queue_mngr_mutex);
+
+        memset(buf, 0, sizeof(struct msg));
     }
 
     close(sd);

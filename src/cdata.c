@@ -6,7 +6,7 @@
 #include "cdata.h"
 
 /* TODO: pack_float(), rename un|pack[0-9]+() to un|pack_int[0-9]+(). */
-static void pack32(uint8_t *buf, uint32_t x)
+static void pack_int32(uint8_t *buf, uint32_t x)
 {
     *buf++ = x >> 24;
     *buf++ = x >> 16;
@@ -14,18 +14,18 @@ static void pack32(uint8_t *buf, uint32_t x)
     *buf++ = x;
 }
 
-static uint32_t unpack32(uint8_t *buf)
+static uint32_t unpack_int32(uint8_t *buf)
 {
     return (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
 }
 
-static void pack16(uint8_t *buf, uint16_t x)
+static void pack16_int(uint8_t *buf, uint16_t x)
 {
     *buf++ = x >> 8;
     *buf++ = x;
 }
 
-static uint16_t unpack16(uint8_t *buf)
+static uint16_t unpack16_int(uint8_t *buf)
 {
     return (buf[0] << 8) | buf[1];
 }
@@ -41,33 +41,33 @@ static void msgtype_walk_pack(struct msg *m, uint8_t *buf)
     
     *buf++ = m->body.walk.direction;
 
-    pack16(buf, htons(pos_x));
+    pack16_int(buf, htons(pos_x));
     buf += 2;
-    pack16(buf, htons(pos_y));
+    pack16_int(buf, htons(pos_y));
     buf += 2;
 }
 
 static void msgtype_shoot_pack(struct msg *m, uint8_t *buf)
 {
-    //*buf++ = ((struct msgtype_shoot *) m->body)->gun_type;
-    uint16_t gun_type = m->body.shoot.gun_type;
-    pack16(buf, htons(gun_type));
+    *buf++ = m->body.shoot.gun_type;
+    //uint8_t gun_type = m->body.shoot.gun_type;
+    //pack8_int(buf, htons(gun_type));
 }
 
 /* ... and for unpacking. */
 static void msgtype_walk_unpack(uint8_t *buf, struct msg *m)
 {
     m->body.walk.direction = (uint8_t) *buf++;
-    m->body.walk.pos_x = ntohs(unpack16(buf));
+    m->body.walk.pos_x = ntohs(unpack16_int(buf));
     buf += 2;
-    m->body.walk.pos_y = ntohs(unpack16(buf));
+    m->body.walk.pos_y = ntohs(unpack16_int(buf));
     buf += 2;
 }
 
 static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
 {
-    m->body.shoot.gun_type = ntohs(unpack16(buf));
-    //((struct msgtype_shoot *) m->body)->gun_type = (uint8_t) *buf++;
+    //m->body.shoot.gun_type = ntohs(unpack16_int(buf));
+    m->body.shoot.gun_type = (uint8_t) *buf++;
 }
 
 /* Because I hate switches and
@@ -90,7 +90,7 @@ void msg_pack(struct msg *m, uint8_t *buf)
     void (*msgtype_func)(struct msg*, uint8_t*);
     uint32_t seq = m->header.seq;
     
-    pack32(buf, htonl(seq));
+    pack_int32(buf, htonl(seq));
     buf += 4;
     *buf++ = m->header.player;
     *buf++ = (uint8_t) m->type;
@@ -105,7 +105,7 @@ void msg_unpack(uint8_t *buf, struct msg *m)
 {
     void (*msgtype_func)(uint8_t*, struct msg*);
 
-    m->header.seq = ntohl(unpack32(buf));
+    m->header.seq = ntohl(unpack_int32(buf));
     buf += 4;
     m->header.player = (uint8_t) *buf++;
     m->type = (uint8_t) *buf++;
