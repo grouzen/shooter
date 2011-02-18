@@ -16,5 +16,8 @@
             Fetch messages then update       ----------------
             world and send them to players. 
 
-            
+** Client
+
+   First thread draw the user interface.
+   Second recieves data and send signal to the first.
             

@@ -10,14 +10,8 @@
 
 #define MSGQUEUE_INIT_SIZE 64
 
-struct msg_queue_node {
-    struct msg *data;
-    struct sockaddr_in *addr;
-    struct socklen_t *addr_len;
-};
-
 struct msg_queue {
-    struct msg_queue_node *nodes;
+    struct msg *data[MSGQUEUE_INIT_SIZE];
     ssize_t top;
 };
 
@@ -32,14 +26,10 @@ void msgqueue_init(struct msg_queue *q)
 
     q = malloc(sizeof(struct msg_queue));
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        q->nodes[i] = malloc(sizeof(struct msg_queue_node));
-        q->nodes[i]->data = malloc(sizeof(struct msg));
-        q->nodes[i]->addr = malloc(sizeof(struct sockaddr_in));
-        q->nodes[i]->addr_len = malloc(sizeof(struct socklen_t));
+        q->data[i] = malloc(sizeof(struct msg));
     }
-    memset(q->data, 0, sizeof(struct msg) * MSGQUEUE_INIT_SIZE);
 
-    q->top = 0;
+    q->top = -1;
 }
 
 void msgqueue_clean(struct msg_queue *q)
@@ -47,32 +37,27 @@ void msgqueue_clean(struct msg_queue *q)
     int i;
 
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        free(q->nodes[i]->data);
-        free(q->nodes[i]->addr);
-        free(q->nodes[i]->addr_len);
-        free(q->nodes[i]);
+        free(q->data[i]);
     }
     
    free(q);
 }
 
-msg_queue_enum_t msgqueue_push(struct msg_queue *q, uint8_t *buf,
-                               struct sockaddr_in *addr, struct socklen_t *addr_len)
+msg_queue_enum_t msgqueue_push(struct msg_queue *q, uint8_t *buf)
 {
-    if(msgqueue->top < MSGQUEUE_INIT_SIZE - 1) {
-        msg_unpack(buf, q->nodes[top++]->data);
-        memcpy(q->nodes->addr, addr, sizeof(struct sockaddr_in));
-        memcpy(q->nodes->addr_len, addr_len, sizeof(struct socklen_t));
+    if(q->top < MSGQUEUE_INIT_SIZE - 1) {
+        q->top++;
+        msg_unpack(buf, q->data[q->top]);
         return MSGQUEUE_OK;
     }
 
     return MSGQUEUE_ERROR;
 }
 
-struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
+struct msg *msgqueue_pop(struct msg_queue *q)
 {
-    if(q->top) {
-        return q->nodes[msgqueue->top--];
+    if(q->top >= 0) {
+        return q->data[q->top--];
     }
 
     return NULL;
@@ -84,6 +69,7 @@ pthread_mutex_t queue_mngr_mutex;
 pthread_cond_t queue_mngr_cond;
 pthread_t recv_mngr_thread, queue_mngr_thread;
 uint64_t queue_mngr_ticks;
+int sd;
 
 /* This thread must do the only one
  * thing - recieve messages from many
@@ -91,28 +77,10 @@ uint64_t queue_mngr_ticks;
  */
 void *recv_mngr_func(void *arg)
 {
-    int sd;
     uint8_t buf[sizeof(struct msg)];
     ssize_t recvbytes;
-    struct sockaddr_in server_addr, client_addr;
-    struct socklen_t client_addr_len;
 
     memset(buf, 0, sizeof(struct msg));
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(6006);
-    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    sd = socket(server_addr.sin_family, SOCK_DGRAM, 0);
-    if(sd < 0) {
-        perror("server: socket");
-        exit(EXIT_FAILURE);
-    }
-
-    if(bind(sd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
-        perror("server: bind");
-        exit(EXIT_FAILURE);
-    }
 
     while("hope is not dead") {
         if(ticks_get() - queue_mngr_ticks > 1000 / TPS) {
@@ -120,22 +88,18 @@ void *recv_mngr_func(void *arg)
             pthread_cond_signal(&queue_mngr_cond);
         }
         
-        if((recvbytes = recvfrom(sd, buf, sizeof(struct msg), 0,
-                                 (struct sockaddr *) &client_addr,
-                                 &client_addr_len)) < 0) {
+        if((recvbytes = recvfrom(sd, buf, sizeof(uint8_t) * sizeof(struct msg), 0, NULL, NULL)) < 0) {
             perror("server: recvfrom");
         }
         
         pthread_mutex_lock(&queue_mngr_mutex);
-        if(msgqueue_push(msgqueue, buf, &client_addr, &client_addr_len) == MSGQUEUE_ERROR) {
+        if(msgqueue_push(msgqueue, buf) == MSGQUEUE_ERROR) {
             fprintf(stderr, "server: recvfrom: couldn't push data into queue.\n");
         }
         pthread_mutex_unlock(&queue_mngr_mutex);
 
         memset(buf, 0, sizeof(struct msg));
     }
-
-    close(sd);
 }
 
 
@@ -158,10 +122,28 @@ void *queue_mngr_func(void *arg)
 int main(int argc, char **argv)
 {
     pthread_attr_t common_attr;
-
+    struct sockaddr_in server_addr;
+    
     queue_mngr_ticks = ticks_start();
     /* Init once messages queue. */
     msgqueue_init(msgqueue);
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(6006);
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    sd = socket(server_addr.sin_family, SOCK_DGRAM, 0);
+    if(sd < 0) {
+        perror("server: socket");
+        exit(EXIT_FAILURE);
+    }
+
+    if(bind(sd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
+        perror("server: bind");
+        exit(EXIT_FAILURE);
+    }
+
     pthread_mutex_init(&queue_mngr_mutex, NULL);
     pthread_cond_init(&queue_mngr_cond, NULL);
     
@@ -171,6 +153,7 @@ int main(int argc, char **argv)
     pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
     pthread_create(&queue_mngr_thread, &common_attr, queue_mngr_func, NULL);
 
+    close(sd);
     pthread_join(recv_mngr_thread);
     pthread_join(queue_mngr_thread);
     msgqueue_clean(msgqueue);
