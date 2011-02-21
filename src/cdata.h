@@ -3,14 +3,6 @@
 
 #include <stdint.h>
 
-/* msg
- * .------------------------.
- * | seq    | player | size | <- msg_header 
- * |------------------------|
- * | type   |     body      |
- * `------------------------'
- */
-
 /*
  * Structures which describes message body
  */
@@ -38,10 +30,6 @@ struct msg_header {
     uint8_t player;
 };
 
-/* This generic struct is necessary
- * for calculating size of memory we need
- * for static allocation et cetera.
- */
 struct msg {
     struct msg_header header;
     uint8_t type;
@@ -78,7 +66,6 @@ struct msg_batch {
 
 struct player {
     struct sockaddr_in addr;
-    struct socklen_t addr_len;
 };
 
 #define TPS 5 /* Ticks per second. */

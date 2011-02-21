@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -10,8 +11,13 @@
 
 #define MSGQUEUE_INIT_SIZE 64
 
+struct msg_queue_node {
+    struct msg *data;
+    struct sockaddr_in *addr;
+};
+
 struct msg_queue {
-    struct msg *data[MSGQUEUE_INIT_SIZE];
+    struct msg_queue_node *nodes[MSGQUEUE_INIT_SIZE];
     ssize_t top;
 };
 
@@ -26,7 +32,9 @@ void msgqueue_init(struct msg_queue *q)
 
     q = malloc(sizeof(struct msg_queue));
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        q->data[i] = malloc(sizeof(struct msg));
+        q->nodes[i] = malloc(sizeof(struct msg_queue_node));
+        q->nodes[i]->data = malloc(sizeof(struct msg));
+        q->nodes[i]->addr = malloc(sizeof(struct sockaddr_in));
     }
 
     q->top = -1;
@@ -37,27 +45,30 @@ void msgqueue_clean(struct msg_queue *q)
     int i;
 
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        free(q->data[i]);
+        free(q->nodes[i]->data);
+        free(q->nodes[i]->addr);
+        free(q->nodes[i]);
     }
     
-   free(q);
+    free(q);
 }
 
-msg_queue_enum_t msgqueue_push(struct msg_queue *q, uint8_t *buf)
+msg_queue_enum_t msgqueue_push(struct msg_queue *q, uint8_t *buf, struct sockaddr_in *addr)
 {
     if(q->top < MSGQUEUE_INIT_SIZE - 1) {
         q->top++;
-        msg_unpack(buf, q->data[q->top]);
+        memcpy(q->nodes[q->top]->addr, addr, sizeof(struct sockaddr_in));
+        msg_unpack(buf, q->nodes[q->top]->data);
         return MSGQUEUE_OK;
     }
 
     return MSGQUEUE_ERROR;
 }
 
-struct msg *msgqueue_pop(struct msg_queue *q)
+struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
 {
     if(q->top >= 0) {
-        return q->data[q->top--];
+        return q->nodes[q->top--];
     }
 
     return NULL;
@@ -79,6 +90,8 @@ void *recv_mngr_func(void *arg)
 {
     uint8_t buf[sizeof(struct msg)];
     ssize_t recvbytes;
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len;
 
     memset(buf, 0, sizeof(struct msg));
 
@@ -88,7 +101,8 @@ void *recv_mngr_func(void *arg)
             pthread_cond_signal(&queue_mngr_cond);
         }
         
-        if((recvbytes = recvfrom(sd, buf, sizeof(uint8_t) * sizeof(struct msg), 0, NULL, NULL)) < 0) {
+        if((recvbytes = recvfrom(sd, buf, sizeof(uint8_t) * sizeof(struct msg), 0,
+                                 (struct sockaddr *) &client_addr, &client_addr_len)) < 0) {
             perror("server: recvfrom");
         }
         
@@ -105,10 +119,15 @@ void *recv_mngr_func(void *arg)
 
 void *queue_mngr_func(void *arg)
 {
+    struct msg_queue_node *qnode;
+    
     while("teh internetz exists") {
         pthread_cond_wait(&queue_mngr_cond, &queue_mngr_mutex);
 
         /* Handle messages. */
+        while((qnode = msgqueue_pop(msgqueue)) != NULL) {
+            
+        }
         
         pthread_mutex_unlock(&queue_mngr_mutex);
     }
