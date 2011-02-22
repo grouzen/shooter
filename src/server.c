@@ -124,7 +124,7 @@ void *queue_mngr_func(void *arg)
     while("teh internetz exists") {
         pthread_cond_wait(&queue_mngr_cond, &queue_mngr_mutex);
 
-        /* Handle messages. */
+        /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
             
         }

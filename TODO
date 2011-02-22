@@ -1,11 +1,27 @@
 # -*- mode: Org; -*-
+# If you are not using emacs you are a dick ;^).
 
 * General concept
-  Simple text-based multiplayer shooter.
+  Simple text-based(or no?) multiplayer shooter.
   Client-server mechanism based on binary protocol.
+
+** todo for all
+*** TODO Try to figure out what should be a battle mechanism.
   
 * Closer details
 ** Server
+
+   How it works:
+   Server side has a three threads: 
+   1. recieves messages from the clients and puts it into messages queue;
+   2. handles each message from the messages queue, updates the world's state
+      and sends difference to each client. Also, for each client it checks `seq` 
+      number from the `struct msg` and if `seq` differs very hard with the
+      server's `seq`, thread sends whole world's state to that client.
+   3. this thread sends query to each client for getting its `seq` number
+      and checking connection state(keep alive) and if `seq` of client
+      is much different, thread sends whole world's state to that client.
+   
 
    players list -+-> player 1 -> recieve data and insert into messages queue
    (slots)       +-> player 2 <-.                    |
@@ -14,10 +30,54 @@
                                 |            ________V_______
    world -> messages queue manager <------- ( messages queue )
             Fetch messages then update       ----------------
-            world and send them to players. 
+            world and send them to players.
+
+
+*** todo for the server side.
+**** TODO Write function sync_mngr_func()
+**** TODO Write a handling of the events within queue_mngr_func()
+     For begin let's handle connection event.
+**** TODO Think about synchronization between the server and a clients more detail.
+     see item about sync_mngr_func() too.
 
 ** Client
 
-   First thread draw the user interface.
-   Second recieves data and send signal to the first.
+   First thread draw the user interface and send data to server.
+   Second recieves a data and sends the signal to the first.
+
+   How it works:
+   Let's suggest that FPS = 5, UI reads user's input 5 times
+   per second and each time it sends the data with events to the
+   server. When another thread recieves the data it blocks the 
+   world's state, update them, and then UI can be updated.
+   That's all ;^).
             
+*** UI
+    
+    I think it must be like:
+    
+    +-------------------------------------+
+    | ...................... | ********** |
+    | ...................... | ********** |
+    | ...................... | ********** |
+    | ...................... | ** Menu ** |
+    | .....Scrolled Map..... | ********** |
+    | ...................... | ** and *** |
+    | .....Here must be..... | ********** |
+    | ..a various objects... | ** stat ** |
+    | ...................... | ********** |
+    | ...................... | ********** |
+    | ...................... | ********** |
+    | ...................... | ********** |
+    +-------------------------------------+
+
+    We must think about the menu and the fucking everthing else too XD.
+    I think we will discuss about it in jabber more detail.
+
+*** Just a fucking todo for the client part
+**** TODO Write basic UI in ncurses
+     Must be an opportunity to write UI in various toolkits(SDL, OGL, and etc).
+**** TODO Think about events(actions) that client can makes
+     For example: to shoot, to run, to die, to take up objects and so on.
+     Write general functions and data structures for 
+     the binary protocol(cdata.c, cdata.h).

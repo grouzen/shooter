@@ -70,9 +70,9 @@ static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
     m->body.shoot.gun_type = (uint8_t) *buf++;
 }
 
-/* Because I hate switches and
- * all these condition statements
- * I prefer to use calls table.
+/* Because I hate switches and all these condition statements
+ * I prefer to use calls table. They must be synced with enum
+ * declared in cdata.h.
  */
 intptr_t msgtype_pack_funcs[] = {
     msgtype_walk_pack,
