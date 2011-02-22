@@ -19,7 +19,7 @@
       number from the `struct msg` and if `seq` differs very hard with the
       server's `seq`, thread sends whole world's state to that client.
    3. this thread sends query to each client for getting its `seq` number
-      and checking connection state(keep alive) and if `seq` of client
+      and checking connection state(keep alive) and if `seq` of the client
       is much different, thread sends whole world's state to that client.
    
 
@@ -28,9 +28,9 @@
                  +-> ...        |                    |
                  '-> player n   |                    |
                                 |            ________V_______
-   world -> messages queue manager <------- ( messages queue )
-            Fetch messages then update       ----------------
-            world and send them to players.
+   world -> queue manager <---------------- ( messages queue )
+            Fetchs messages then updates     ----------------
+            world and sends them to the players.
 
 
 *** todo for the server side.
@@ -42,14 +42,14 @@
 
 ** Client
 
-   First thread draw the user interface and send data to server.
+   First thread draws the user interface and sends a data to the server.
    Second recieves a data and sends the signal to the first.
 
    How it works:
    Let's suggest that FPS = 5, UI reads user's input 5 times
    per second and each time it sends the data with events to the
    server. When another thread recieves the data it blocks the 
-   world's state, update them, and then UI can be updated.
+   world's state, updates them, and then UI can be updated.
    That's all ;^).
             
 *** UI
@@ -71,13 +71,13 @@
     | ...................... | ********** |
     +-------------------------------------+
 
-    We must think about the menu and the fucking everthing else too XD.
+    We must think about the menu and fucking everthing else too XD.
     I think we will discuss about it in jabber more detail.
 
 *** Just a fucking todo for the client part
 **** TODO Write basic UI in ncurses
      Must be an opportunity to write UI in various toolkits(SDL, OGL, and etc).
 **** TODO Think about events(actions) that client can makes
-     For example: to shoot, to run, to die, to take up objects and so on.
+     For example: to shoot, to run, to die, to take up an objects and so on.
      Write general functions and data structures for 
      the binary protocol(cdata.c, cdata.h).
