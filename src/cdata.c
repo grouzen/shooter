@@ -31,15 +31,15 @@ static uint16_t unpack16_int(uint8_t *buf)
 }
 
 /* Here we have a couple routines for
- * packing subtypes(member `body')
+ * packing subtypes(member `event')
  * of the structure `msg'.
  */
 static void msgtype_walk_pack(struct msg *m, uint8_t *buf)
 {
-    uint16_t pos_x = m->body.walk.pos_x;
-    uint16_t pos_y = m->body.walk.pos_y;
+    uint16_t pos_x = m->event.walk.pos_x;
+    uint16_t pos_y = m->event.walk.pos_y;
     
-    *buf++ = m->body.walk.direction;
+    *buf++ = m->event.walk.direction;
 
     pack16_int(buf, htons(pos_x));
     buf += 2;
@@ -49,25 +49,25 @@ static void msgtype_walk_pack(struct msg *m, uint8_t *buf)
 
 static void msgtype_shoot_pack(struct msg *m, uint8_t *buf)
 {
-    *buf++ = m->body.shoot.gun_type;
-    //uint8_t gun_type = m->body.shoot.gun_type;
+    *buf++ = m->event.shoot.gun_type;
+    //uint8_t gun_type = m->event.shoot.gun_type;
     //pack8_int(buf, htons(gun_type));
 }
 
 /* ... and for unpacking. */
 static void msgtype_walk_unpack(uint8_t *buf, struct msg *m)
 {
-    m->body.walk.direction = (uint8_t) *buf++;
-    m->body.walk.pos_x = ntohs(unpack16_int(buf));
+    m->event.walk.direction = (uint8_t) *buf++;
+    m->event.walk.pos_x = ntohs(unpack16_int(buf));
     buf += 2;
-    m->body.walk.pos_y = ntohs(unpack16_int(buf));
+    m->event.walk.pos_y = ntohs(unpack16_int(buf));
     buf += 2;
 }
 
 static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
 {
-    //m->body.shoot.gun_type = ntohs(unpack16_int(buf));
-    m->body.shoot.gun_type = (uint8_t) *buf++;
+    //m->event.shoot.gun_type = ntohs(unpack16_int(buf));
+    m->event.shoot.gun_type = (uint8_t) *buf++;
 }
 
 /* Because I hate switches and all these condition statements

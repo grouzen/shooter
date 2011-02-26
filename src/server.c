@@ -53,12 +53,12 @@ void msgqueue_clean(struct msg_queue *q)
     free(q);
 }
 
-msg_queue_enum_t msgqueue_push(struct msg_queue *q, uint8_t *buf, struct sockaddr_in *addr)
+msg_queue_enum_t msgqueue_push(struct msg_queue_node *q, struct msg_queue_node *qnode)
 {
     if(q->top < MSGQUEUE_INIT_SIZE - 1) {
         q->top++;
-        memcpy(q->nodes[q->top]->addr, addr, sizeof(struct sockaddr_in));
-        msg_unpack(buf, q->nodes[q->top]->data);
+        memcpy(q->nodes[q->top]->addr, qnode->addr, sizeof(struct sockaddr_in));
+        memcpy(q->nodes[q->top]->data, qnode->data, sizeof(struct msg));
         return MSGQUEUE_OK;
     }
 
@@ -92,8 +92,12 @@ void *recv_mngr_func(void *arg)
     ssize_t recvbytes;
     struct sockaddr_in client_addr;
     socklen_t client_addr_len;
+    struct msg_queue_node *qnode;
 
-    memset(buf, 0, sizeof(struct msg));
+    qnode = malloc(sizeof(struct msg_queue_node));
+    qnode->data = malloc(sizeof(struct msg));
+    qnode->addr = malloc(sizeof(struct sockaddr_in));
+    memset(buf, 0, sizeof(struct msg_queue_node));
 
     while("hope is not dead") {
         if(ticks_get() - queue_mngr_ticks > 1000 / TPS) {
@@ -105,9 +109,11 @@ void *recv_mngr_func(void *arg)
                                  (struct sockaddr *) &client_addr, &client_addr_len)) < 0) {
             perror("server: recvfrom");
         }
-        
+
+        msg_unpack(buf, qnode->data);
+        qnode->addr = &client_addr;
         pthread_mutex_lock(&queue_mngr_mutex);
-        if(msgqueue_push(msgqueue, buf) == MSGQUEUE_ERROR) {
+        if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
             fprintf(stderr, "server: recvfrom: couldn't push data into queue.\n");
         }
         pthread_mutex_unlock(&queue_mngr_mutex);

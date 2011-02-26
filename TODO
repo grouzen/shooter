@@ -13,7 +13,7 @@
 
    How it works:
    Server side has a three threads: 
-   1. recieves messages from the clients and puts it into messages queue;
+   1. receives messages from the clients and puts it into messages queue;
    2. handles each message from the messages queue, updates the world's state
       and sends difference to each client. Also, for each client it checks `seq` 
       number from the `struct msg` and if `seq` differs very hard with the
@@ -23,19 +23,19 @@
       is much different, thread sends whole world's state to that client.
    
 
-   players list -+-> player 1 -> recieve data and insert into messages queue
+   players list -+-> player 1 -> recieves data and inserts into messages queue
    (slots)       +-> player 2 <-.                    |
                  +-> ...        |                    |
                  '-> player n   |                    |
                                 |            ________V_______
    world -> queue manager <---------------- ( messages queue )
             Fetchs messages then updates     ----------------
-            world and sends them to the players.
+            the world and sends them to the players.
 
 
 *** todo for the server side.
 **** TODO Write function sync_mngr_func()
-**** TODO Write a handling of the events within queue_mngr_func()
+**** ACTIVE Write a handling of the events within queue_mngr_func()
      For begin let's handle connection event.
 **** TODO Think about synchronization between the server and a clients more detail.
      see item about sync_mngr_func() too.

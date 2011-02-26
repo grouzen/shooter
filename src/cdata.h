@@ -22,6 +22,10 @@ struct msgtype_shoot {
     uint8_t gun_type;
 };
 
+struct msgtype_connect {
+    
+}
+    
 /*
  * General message structures
  */
@@ -36,14 +40,14 @@ struct msg {
     union {
         struct msgtype_walk walk;
         struct msgtype_shoot shoot;
-    } body;
+    } event;
 };
 
 /* Optimization for minimizing number of system calls;
  * client --| struct msg |--> server
  * server --| struct msg_batch |--> client
  * Thus we call socket_send() only one time
- * when sending difference between world states.
+ * when sending difference between world's states.
  *
  * First byte - size, therefore size is limited about 255.
  */
