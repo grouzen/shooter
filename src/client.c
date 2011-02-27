@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -11,7 +12,7 @@
 #include "cdata.h"
 
 pthread_t ui_mngr_thread, recv_mngr_thread;
-uint64_t ui_mngr_ticks;
+struct ticks *ui_mngr_ticks;
 struct sockaddr_in server_addr;
 int sd;
 
@@ -38,7 +39,7 @@ int main(int argc, char **argv)
 {
     pthread_attr_t common_attr;
     // TODO: get the address from argv or config, or other place
-    struct hosten *host = gethostbyname((char *) "127.0.0.1");
+    struct hostent *host = gethostbyname((char *) "127.0.0.1");
 
     ui_mngr_ticks = ticks_start();
     
@@ -52,7 +53,7 @@ int main(int argc, char **argv)
         perror("client: socket");
         exit(EXIT_FAILURE);
     }
-    
+
     pthread_attr_init(&common_attr);
     pthread_attr_setdetachstate(&common_attr, PTHREAD_CREATE_JOINABLE);
 
@@ -60,8 +61,8 @@ int main(int argc, char **argv)
     pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
 
     close(sd);
-    pthread_join(recv_mngr_thread);
-    pthread_join(ui_mngr_thread);
+    pthread_join(recv_mngr_thread, NULL);
+    pthread_join(ui_mngr_thread, NULL);
     pthread_attr_destroy(&common_attr);
     pthread_exit(NULL);
     
