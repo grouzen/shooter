@@ -9,7 +9,8 @@
 enum {
     MSGTYPE_NONE = -1,
     MSGTYPE_WALK,
-    MSGTYPE_SHOOT
+    MSGTYPE_SHOOT,
+    MSGTYPE_CONNECT
 };
 
 struct msgtype_walk {
@@ -22,9 +23,11 @@ struct msgtype_shoot {
     uint8_t gun_type;
 };
 
+#define NICK_MAX_LEN 16
+
 struct msgtype_connect {
-    
-}
+    uint8_t nick[NICK_MAX_LEN]; // null-terminated.
+};
     
 /*
  * General message structures
@@ -40,6 +43,7 @@ struct msg {
     union {
         struct msgtype_walk walk;
         struct msgtype_shoot shoot;
+        struct msgtype_connect connect;
     } event;
 };
 
@@ -70,8 +74,24 @@ struct msg_batch {
 
 struct player {
     struct sockaddr_in addr;
+    uint8_t nick[NICK_MAX_LEN];
 };
 
 #define TPS 5 /* Ticks per second. */
+
+struct ticks {
+    uint64_t offset;
+    uint64_t count;
+};
+
+void msg_pack(struct msg*, uint8_t*);
+void msg_unpack(uint8_t*, struct msg*);
+enum msg_batch_enum_t msg_batch_push(struct msg_batch*, struct msg*);
+uint8_t *msg_batch_pop(struct msg_batch*);
+uint64_t ticks_get(void);
+struct ticks *ticks_start(void);
+void ticks_update(struct ticks*);
+void ticks_finish(struct ticks*);
+uint64_t ticks_get_diff(struct ticks*);
 
 #endif

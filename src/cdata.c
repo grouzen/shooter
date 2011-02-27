@@ -1,11 +1,12 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
 
 #include "cdata.h"
 
-/* TODO: pack_float(), rename un|pack[0-9]+() to un|pack_int[0-9]+(). */
+/* TODO: pack_float(). */
 static void pack_int32(uint8_t *buf, uint32_t x)
 {
     *buf++ = x >> 24;
@@ -54,6 +55,16 @@ static void msgtype_shoot_pack(struct msg *m, uint8_t *buf)
     //pack8_int(buf, htons(gun_type));
 }
 
+static void msgtype_connect_pack(struct msg *m, uint8_t *buf)
+{
+    int i;
+
+    for(i = 0; m->event.connect.nick[i] != '\0'; i++) {
+        *buf++ = m->event.connect.nick[i];
+    }
+    *buf++ = '\0';
+}
+
 /* ... and for unpacking. */
 static void msgtype_walk_unpack(uint8_t *buf, struct msg *m)
 {
@@ -70,18 +81,30 @@ static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
     m->event.shoot.gun_type = (uint8_t) *buf++;
 }
 
+static void msgtype_connect_unpack(uint8_t *buf, struct msg *m)
+{
+    int i;
+
+    for(i = 0; buf[i] != '\0'; i++) {
+        m->event.connect.nick[i] = buf[i];
+    }
+    m->event.connect.nick[i] = '\0';
+}
+
 /* Because I hate switches and all these condition statements
  * I prefer to use calls table. They must be synced with enum
  * declared in cdata.h.
  */
 intptr_t msgtype_pack_funcs[] = {
     msgtype_walk_pack,
-    msgtype_shoot_pack
+    msgtype_shoot_pack,
+    msgtype_connect_pack
 };
 
 intptr_t msgtype_unpack_funcs[] = {
     msgtype_walk_unpack,
-    msgtype_shoot_unpack
+    msgtype_shoot_unpack,
+    msgtype_connect_unpack
 };
 
 /* General packing/unpacking functions. */
@@ -116,7 +139,7 @@ void msg_unpack(uint8_t *buf, struct msg *m)
     }
 }
 
-msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
+enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
 {
     if(b->offset <= MSGBATCH_BYTES - sizeof(struct msg)) {
         msg_pack(m, &(b->chunks[b->offset]));
@@ -130,40 +153,51 @@ msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
 uint8_t *msg_batch_pop(struct msg_batch *b)
 {
     if(b->offset > sizeof(struct msg)) {
-        offset -= sizeof(struct msg);
+        b->offset -= sizeof(struct msg);
         return &(b->chunks[b->offset]);
     }
 
     return NULL;
 }
 
-/* These functions work in fact with microseconds. */
-uint64_t start_ticks;
-
-#define GET_MICROSECS(t) (((t).tv_sec * 1000000) + ((t).tv_usec / 1000))
-
-uint64_t ticks_start(void)
-{
-    struct timeval t;
-
-    if(gettimeofday(&t, NULL) < 0) {
-        perror("cdata: gettimeofday");
-        exit(EXIT_FAILURE);
-    }
-
-    start_ticks = GET_MICROSECS(t);
-
-    return start_ticks;
-}
+/* These functions work in fact with ms. */
+#define GET_MICROSECS(t) 
 
 uint64_t ticks_get(void)
 {
     struct timeval t;
-
+    
     if(gettimeofday(&t, NULL) < 0) {
         perror("cdata: gettimeofday");
         exit(EXIT_FAILURE);
     }
 
-    return GET_MICROSECS(t) - start_ticks;
+    return (((uint64_t) t.tv_sec) * 1000) + (((uint64_t) t.tv_usec) / 1000);
+}
+
+struct ticks *ticks_start(void)
+{
+    struct ticks *tc;
+
+    tc = malloc(sizeof(struct ticks));
+
+    tc->offset = ticks_get();
+    tc->count = 0;
+
+    return tc;
+}
+
+void ticks_finish(struct ticks *tc)
+{
+    free(tc);
+}
+
+void ticks_update(struct ticks *tc)
+{
+    tc->count = ticks_get() - tc->offset;
+}
+
+uint64_t ticks_get_diff(struct ticks *tc)
+{
+    return ticks_get() - (tc->offset + tc->count);
 }

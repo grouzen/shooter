@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
@@ -26,8 +27,9 @@ enum msg_queue_enum_t {
     MSGQUEUE_OK
 };
 
-void msgqueue_init(struct msg_queue *q)
+struct msg_queue *msgqueue_init(void)
 {
+    struct msg_queue *q;
     int i;
 
     q = malloc(sizeof(struct msg_queue));
@@ -38,6 +40,8 @@ void msgqueue_init(struct msg_queue *q)
     }
 
     q->top = -1;
+
+    return q;
 }
 
 void msgqueue_clean(struct msg_queue *q)
@@ -53,7 +57,7 @@ void msgqueue_clean(struct msg_queue *q)
     free(q);
 }
 
-msg_queue_enum_t msgqueue_push(struct msg_queue_node *q, struct msg_queue_node *qnode)
+enum msg_queue_enum_t msgqueue_push(struct msg_queue *q, struct msg_queue_node *qnode)
 {
     if(q->top < MSGQUEUE_INIT_SIZE - 1) {
         q->top++;
@@ -79,7 +83,7 @@ struct player players[MAX_PLAYERS];
 pthread_mutex_t queue_mngr_mutex;
 pthread_cond_t queue_mngr_cond;
 pthread_t recv_mngr_thread, queue_mngr_thread;
-uint64_t queue_mngr_ticks;
+struct ticks *queue_mngr_ticks;
 int sd;
 
 /* This thread must do the only one
@@ -89,28 +93,30 @@ int sd;
 void *recv_mngr_func(void *arg)
 {
     uint8_t buf[sizeof(struct msg)];
-    ssize_t recvbytes;
     struct sockaddr_in client_addr;
-    socklen_t client_addr_len;
+    socklen_t client_addr_len = sizeof(client_addr);
     struct msg_queue_node *qnode;
-
+        
     qnode = malloc(sizeof(struct msg_queue_node));
     qnode->data = malloc(sizeof(struct msg));
     qnode->addr = malloc(sizeof(struct sockaddr_in));
-    memset(buf, 0, sizeof(struct msg_queue_node));
+    memset(buf, 0, sizeof(struct msg));
 
+    queue_mngr_ticks = ticks_start();
+    
     while("hope is not dead") {
-        if(ticks_get() - queue_mngr_ticks > 1000 / TPS) {
-            queue_mngr_ticks = ticks_get();
+        if(ticks_get_diff(queue_mngr_ticks) > 1000 / TPS) {
+            ticks_update(queue_mngr_ticks);
             pthread_cond_signal(&queue_mngr_cond);
         }
         
-        if((recvbytes = recvfrom(sd, buf, sizeof(uint8_t) * sizeof(struct msg), 0,
-                                 (struct sockaddr *) &client_addr, &client_addr_len)) < 0) {
+        if(recvfrom(sd, buf, sizeof(struct msg), 0,
+                    (struct sockaddr *) &client_addr, &client_addr_len) < 0) {
             perror("server: recvfrom");
         }
-
+        
         msg_unpack(buf, qnode->data);
+        printf("type = %d\n", qnode->data->type);
         qnode->addr = &client_addr;
         pthread_mutex_lock(&queue_mngr_mutex);
         if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
@@ -126,13 +132,22 @@ void *recv_mngr_func(void *arg)
 void *queue_mngr_func(void *arg)
 {
     struct msg_queue_node *qnode;
+
+    sleep(1);
     
     while("teh internetz exists") {
         pthread_cond_wait(&queue_mngr_cond, &queue_mngr_mutex);
-
+        
         /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
-            
+            switch(qnode->data->type) {
+            case MSGTYPE_CONNECT:
+                printf("Player has been connected with nick: %s\n", qnode->data->event.connect.nick);
+                break;
+            default:
+                printf("Unknown event\n");
+                break;
+            }
         }
         
         pthread_mutex_unlock(&queue_mngr_mutex);
@@ -149,9 +164,8 @@ int main(int argc, char **argv)
     pthread_attr_t common_attr;
     struct sockaddr_in server_addr;
     
-    queue_mngr_ticks = ticks_start();
     /* Init once messages queue. */
-    msgqueue_init(msgqueue);
+    msgqueue = msgqueue_init();
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -163,12 +177,12 @@ int main(int argc, char **argv)
         perror("server: socket");
         exit(EXIT_FAILURE);
     }
-
+    
     if(bind(sd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
         perror("server: bind");
         exit(EXIT_FAILURE);
     }
-
+    
     pthread_mutex_init(&queue_mngr_mutex, NULL);
     pthread_cond_init(&queue_mngr_cond, NULL);
     
@@ -178,9 +192,9 @@ int main(int argc, char **argv)
     pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
     pthread_create(&queue_mngr_thread, &common_attr, queue_mngr_func, NULL);
 
+    pthread_join(recv_mngr_thread, NULL);
+    pthread_join(queue_mngr_thread, NULL);
     close(sd);
-    pthread_join(recv_mngr_thread);
-    pthread_join(queue_mngr_thread);
     msgqueue_clean(msgqueue);
     pthread_attr_destroy(&common_attr);
     pthread_mutex_destroy(&queue_mngr_mutex);
