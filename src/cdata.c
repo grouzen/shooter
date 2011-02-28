@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
 
@@ -160,9 +161,65 @@ uint8_t *msg_batch_pop(struct msg_batch *b)
     return NULL;
 }
 
-/* These functions work in fact with ms. */
-#define GET_MICROSECS(t) 
+struct players *players_init(void)
+{
+    struct players *pls;
+    int i;
 
+    pls = malloc(sizeof(struct players));
+
+    for(i = 0; i < MAX_PLAYERS; i++) {
+        pls->slots[i].addr = malloc(sizeof(struct sockaddr_in));
+        pls->slots[i].nick = malloc(sizeof(uint8_t) * NICK_MAX_LEN);
+    }
+
+    pls->count = 0;
+
+    return pls;
+}
+
+void players_free(struct players *pls)
+{
+    int i;
+
+    for(i = 0; i < MAX_PLAYERS; i++) {
+        free(pls->slots[i].addr);
+        free(pls->slots[i].nick);
+    }
+
+    free(pls);
+}
+
+enum players_enum_t players_occupy(struct players *pls, struct player *p)
+{
+    struct player *slot;
+
+    if(pls->count < MAX_PLAYERS) {
+        pls->count++;
+        
+        slot = &(pls->slots[pls->count - 1]);
+        memcpy(slot->addr, p->addr, sizeof(struct sockaddr_in));
+        memcpy(slot->nick, p->nick, strlen(p->nick) + 1);
+        slot->seq = 0;
+
+        return PLAYERS_OK;
+    }
+
+    return PLAYERS_ERROR;
+}
+
+enum players_enum_t players_release(struct players *pls)
+{
+    if(pls->count > 0) {
+        pls->count--;
+
+        return PLAYERS_OK;
+    }
+
+    return PLAYERS_ERROR;
+}
+
+/* These functions work in fact with ms. */
 uint64_t ticks_get(void)
 {
     struct timeval t;

@@ -73,11 +73,22 @@ struct msg_batch {
 #define MAX_PLAYERS 16
 
 struct player {
-    struct sockaddr_in addr;
-    uint8_t nick[NICK_MAX_LEN];
+    struct sockaddr_in *addr;
+    uint8_t *nick;
+    uint32_t seq;
 };
 
-#define TPS 5 /* Ticks per second. */
+enum players_enum_t {
+    PLAYERS_ERROR = 0,
+    PLAYERS_OK
+};
+
+struct players {
+    struct player slots[MAX_PLAYERS];
+    int8_t count; // 0 = no players
+};
+
+#define FPS 5 /* Ticks per second. */
 
 struct ticks {
     uint64_t offset;
@@ -88,6 +99,10 @@ void msg_pack(struct msg*, uint8_t*);
 void msg_unpack(uint8_t*, struct msg*);
 enum msg_batch_enum_t msg_batch_push(struct msg_batch*, struct msg*);
 uint8_t *msg_batch_pop(struct msg_batch*);
+struct players *players_init(void);
+void players_free(struct players*);
+enum players_enum_t players_occupy(struct players*, struct player*);
+enum players_enum_t players_release(struct players*);
 uint64_t ticks_get(void);
 struct ticks *ticks_start(void);
 void ticks_update(struct ticks*);

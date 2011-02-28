@@ -44,7 +44,7 @@ struct msg_queue *msgqueue_init(void)
     return q;
 }
 
-void msgqueue_clean(struct msg_queue *q)
+void msgqueue_free(struct msg_queue *q)
 {
     int i;
 
@@ -79,7 +79,7 @@ struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
 }
 
 struct msg_queue *msgqueue = NULL;
-struct player players[MAX_PLAYERS];
+struct players *players = NULL;
 pthread_mutex_t queue_mngr_mutex;
 pthread_cond_t queue_mngr_cond;
 pthread_t recv_mngr_thread, queue_mngr_thread;
@@ -105,7 +105,7 @@ void *recv_mngr_func(void *arg)
     queue_mngr_ticks = ticks_start();
     
     while("hope is not dead") {
-        if(ticks_get_diff(queue_mngr_ticks) > 1000 / TPS) {
+        if(ticks_get_diff(queue_mngr_ticks) > 1000 / FPS) {
             ticks_update(queue_mngr_ticks);
             pthread_cond_signal(&queue_mngr_cond);
         }
@@ -116,7 +116,6 @@ void *recv_mngr_func(void *arg)
         }
         
         msg_unpack(buf, qnode->data);
-        printf("type = %d\n", qnode->data->type);
         qnode->addr = &client_addr;
         pthread_mutex_lock(&queue_mngr_mutex);
         if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
@@ -140,9 +139,19 @@ void *queue_mngr_func(void *arg)
         
         /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
+            struct player player;
+            
             switch(qnode->data->type) {
             case MSGTYPE_CONNECT:
-                printf("Player has been connected with nick: %s\n", qnode->data->event.connect.nick);
+                player.addr = qnode->addr;
+                player.nick = qnode->data->event.connect.nick;
+                if(players_occupy(players, &player) == PLAYERS_ERROR) {
+                    fprintf(stderr, "There are no free slots.\n");
+                }
+
+                printf("Player has been connected with nick: %s, count = %u\n",
+                       players->slots[players->count - 1].nick, players->count);
+                
                 break;
             default:
                 printf("Unknown event\n");
@@ -164,8 +173,8 @@ int main(int argc, char **argv)
     pthread_attr_t common_attr;
     struct sockaddr_in server_addr;
     
-    /* Init once messages queue. */
     msgqueue = msgqueue_init();
+    players = players_init();
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -195,7 +204,8 @@ int main(int argc, char **argv)
     pthread_join(recv_mngr_thread, NULL);
     pthread_join(queue_mngr_thread, NULL);
     close(sd);
-    msgqueue_clean(msgqueue);
+    msgqueue_free(msgqueue);
+    players_free(players);
     pthread_attr_destroy(&common_attr);
     pthread_mutex_destroy(&queue_mngr_mutex);
     pthread_cond_destroy(&queue_mngr_cond);
