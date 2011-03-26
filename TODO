@@ -92,6 +92,7 @@
 *** Just a fucking todo for the client part
 **** TODO Write basic UI in ncurses
      Must be an opportunity to write UI in various toolkits(SDL, OGL, and etc).
+**** TODO Write generic struct for ui
 **** TODO Think about events(actions) that client can makes
      For example: to shoot, to run, to die, to take up an objects and so on.
      Write general functions and data structures for 

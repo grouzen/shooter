@@ -97,15 +97,15 @@ static void msgtype_connect_unpack(uint8_t *buf, struct msg *m)
  * declared in cdata.h.
  */
 intptr_t msgtype_pack_funcs[] = {
-    msgtype_walk_pack,
-    msgtype_shoot_pack,
-    msgtype_connect_pack
+    (intptr_t) msgtype_walk_pack,
+    (intptr_t) msgtype_shoot_pack,
+    (intptr_t) msgtype_connect_pack
 };
 
 intptr_t msgtype_unpack_funcs[] = {
-    msgtype_walk_unpack,
-    msgtype_shoot_unpack,
-    msgtype_connect_unpack
+    (intptr_t) msgtype_walk_unpack,
+    (intptr_t) msgtype_shoot_unpack,
+    (intptr_t) msgtype_connect_unpack
 };
 
 /* General packing/unpacking functions. */
@@ -199,7 +199,7 @@ enum players_enum_t players_occupy(struct players *pls, struct player *p)
         
         slot = &(pls->slots[pls->count - 1]);
         memcpy(slot->addr, p->addr, sizeof(struct sockaddr_in));
-        memcpy(slot->nick, p->nick, strlen(p->nick) + 1);
+        memcpy(slot->nick, p->nick, strlen((char *) p->nick) + 1);
         slot->seq = 0;
 
         return PLAYERS_OK;

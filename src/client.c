@@ -12,15 +12,22 @@
 
 #include "cdata.h"
 
+#ifdef UI_BACKEND_NCURSES
+#include "ui/ncurses/backend.h"
+#elif UI_BACKEND_SDL
+#include "ui/sdl/backend.h"
+#endif
+
 pthread_t ui_mngr_thread, recv_mngr_thread;
 pthread_attr_t common_attr;
 struct ticks *ui_mngr_ticks;
 struct sockaddr_in server_addr;
 int sd;
 
+/* Init ui_backend. */
 void *ui_mngr_func(void *arg)
 {
-
+    ui_init();
 }
 
 void *recv_mngr_func(void *arg)

@@ -149,10 +149,10 @@ void *queue_mngr_func(void *arg)
                 player.nick = qnode->data->event.connect.nick;
                 if(players_occupy(players, &player) == PLAYERS_ERROR) {
                     fprintf(stderr, "There are no free slots.\n");
+                } else {
+                    printf("Player has been connected with nick: %s, total players = %u\n",
+                           players->slots[players->count - 1].nick, players->count);
                 }
-
-                printf("Player has been connected with nick: %s, count = %u\n",
-                       players->slots[players->count - 1].nick, players->count);
                 
                 break;
             default:
