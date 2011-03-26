@@ -37,6 +37,7 @@
 **** TODO Write function sync_mngr_func()
 **** TODO Write a handling of the events within queue_mngr_func()
 ***** DONE For begin let's handle connection event.
+****** TODO Make handshaking with client.
 **** TODO Think about synchronization between the server and a clients more detail.
      see item about sync_mngr_func() too.
 

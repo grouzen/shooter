@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -83,6 +84,7 @@ struct players *players = NULL;
 pthread_mutex_t queue_mngr_mutex;
 pthread_cond_t queue_mngr_cond;
 pthread_t recv_mngr_thread, queue_mngr_thread;
+pthread_attr_t common_attr;
 struct ticks *queue_mngr_ticks;
 int sd;
 
@@ -163,6 +165,24 @@ void *queue_mngr_func(void *arg)
     }
 }
 
+void quit(int signum)
+{
+    if(signum > 0) {
+        pthread_cancel(recv_mngr_thread);
+        pthread_cancel(queue_mngr_thread);
+    }
+    
+    pthread_join(recv_mngr_thread, NULL);
+    pthread_join(queue_mngr_thread, NULL);
+    close(sd);
+    msgqueue_free(msgqueue);
+    players_free(players);
+    pthread_attr_destroy(&common_attr);
+    pthread_mutex_destroy(&queue_mngr_mutex);
+    pthread_cond_destroy(&queue_mngr_cond);
+    pthread_exit(NULL);
+}
+
 /* TODO: write function sync_mngr_func()
  * which will be check seq number of
  * each client and if necessary send
@@ -170,9 +190,12 @@ void *queue_mngr_func(void *arg)
  */
 int main(int argc, char **argv)
 {
-    pthread_attr_t common_attr;
     struct sockaddr_in server_addr;
     
+    signal(SIGINT, quit);
+    signal(SIGHUP, quit);
+    signal(SIGQUIT, quit);
+     
     msgqueue = msgqueue_init();
     players = players_init();
 
@@ -201,15 +224,7 @@ int main(int argc, char **argv)
     pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
     pthread_create(&queue_mngr_thread, &common_attr, queue_mngr_func, NULL);
 
-    pthread_join(recv_mngr_thread, NULL);
-    pthread_join(queue_mngr_thread, NULL);
-    close(sd);
-    msgqueue_free(msgqueue);
-    players_free(players);
-    pthread_attr_destroy(&common_attr);
-    pthread_mutex_destroy(&queue_mngr_mutex);
-    pthread_cond_destroy(&queue_mngr_cond);
-    pthread_exit(NULL);
+    quit(0);
     
     return 0;
 }

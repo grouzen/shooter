@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -12,6 +13,7 @@
 #include "cdata.h"
 
 pthread_t ui_mngr_thread, recv_mngr_thread;
+pthread_attr_t common_attr;
 struct ticks *ui_mngr_ticks;
 struct sockaddr_in server_addr;
 int sd;
@@ -35,12 +37,29 @@ void *recv_mngr_func(void *arg)
 
 }
 
+void quit(int signum)
+{    
+    if(signum > 0) {
+        pthread_cancel(recv_mngr_thread);
+        pthread_cancel(ui_mngr_thread);
+    }
+    
+    pthread_join(recv_mngr_thread, NULL);
+    pthread_join(ui_mngr_thread, NULL);
+    close(sd);
+    pthread_attr_destroy(&common_attr);
+    pthread_exit(NULL);
+}
+
 int main(int argc, char **argv)
 {
-    pthread_attr_t common_attr;
     // TODO: get the address from argv or config, or other place
     struct hostent *host = gethostbyname((char *) "127.0.0.1");
 
+    signal(SIGINT, quit);
+    signal(SIGHUP, quit);
+    signal(SIGQUIT, quit);
+    
     ui_mngr_ticks = ticks_start();
     
     memset(&server_addr, 0, sizeof(server_addr));
@@ -60,11 +79,7 @@ int main(int argc, char **argv)
     pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
     pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
 
-    close(sd);
-    pthread_join(recv_mngr_thread, NULL);
-    pthread_join(ui_mngr_thread, NULL);
-    pthread_attr_destroy(&common_attr);
-    pthread_exit(NULL);
+    quit(0);
     
     return 0;
 }
