@@ -1,11 +1,9 @@
-server_bin=server
-client_bin=client
-cdata_o=cdata.o
-cdata_src=src/cdata.c
-server_src=src/server.c
-client_src=src/client.c
-server_headers=src/cdata.h
-client_headers=src/cdata.h
+server_target = server
+client_target = client
+server_objs = src/server.c src/cdata.c
+client_objs = src/client.c src/cdata.c
+server_headers = src/cdata.h
+client_headers = src/cdata.h
 
 LDFLAGS += -pthread
 CFLAGS += -Wall -Wextra -g
@@ -22,7 +20,7 @@ cdata: $(cdata_src)
 	gcc -c $(CFLAGS) $(LDFLAGS) -o $(cdata_o) $(cdata_src)
 
 clean:
-	rm -fv $(server_bin) $(client_bin) $(cdata_o)
+	rm -fv $(server_target) $(client_target) src/*.o
 
 .PHONY: all server client clean
 
