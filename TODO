@@ -78,6 +78,17 @@
 
     Nick@server:port   HP: 100/100   Weapon: Granade   Kills/Death: 5/8
 
+
+    When Tab is pressed, statistics about players should be requested from the
+    server and displayed in a way like that:
+
+     Nick                    | Kill | Death
+    -------------------------+------+-------
+     Player                     1       3
+     Gamer                      8       2
+     Loser                      0      11
+    ----------------------------------------
+
 *** Just a fucking todo for the client part
 **** TODO Write basic UI in ncurses
      Must be an opportunity to write UI in various toolkits(SDL, OGL, and etc).
