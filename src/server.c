@@ -89,8 +89,8 @@ struct ticks *queue_mngr_ticks;
 int sd;
 
 /* This thread must do the only one
- * thing - recieve messages from many
- * clients and then push them to msgqueue.
+ * thing - recieves messages from many
+ * clients and then pushs them to msgqueue.
  */
 void *recv_mngr_func(void *arg)
 {

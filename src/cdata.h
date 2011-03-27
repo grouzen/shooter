@@ -55,7 +55,7 @@ struct msg {
  *
  * First byte - size, therefore size is limited about 255.
  */
-#define MSGBATCH_INIT_SIZE 64
+#define MSGBATCH_INIT_SIZE 255
 #define MSGBATCH_BYTES (sizeof(struct msg) * MSGBATCH_INIT_SIZE + sizeof(uint8_t))
 
 enum msg_batch_enum_t {
@@ -88,7 +88,7 @@ struct players {
     int8_t count; // 0 = no players
 };
 
-#define FPS 5 /* Ticks per second. */
+#define FPS 5
 
 struct ticks {
     uint64_t offset;

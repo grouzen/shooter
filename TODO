@@ -52,6 +52,22 @@
    server. When another thread recieves the data it blocks the 
    world's state, updates them, and then UI can be updated.
    That's all ;^).
+
+
+       client
+     ,--------
+     |
+     +- ui_mngr_thread: just init ui.
+     |
+     +- recv_mngr_thread: receives messages from server and adds them to msgqueue.
+     |
+     +- send_mngr_thread: reads last event and sends message to server.
+     |
+     +- ui_read_thread: reads user's actions and updates last event variable.
+     |                  Must be implemented for each ui backend.
+     |
+     `- ui_update_thread: reads msgqueue and updates UI accordingly.
+                          Must be implemented for each ui backend.
             
 *** UI
     
@@ -92,7 +108,6 @@
 *** Just a fucking todo for the client part
 **** TODO Write basic UI in ncurses
      Must be an opportunity to write UI in various toolkits(SDL, OGL, and etc).
-**** TODO Write generic struct for ui
 **** TODO Think about events(actions) that client can makes
      For example: to shoot, to run, to die, to take up an objects and so on.
      Write general functions and data structures for 
