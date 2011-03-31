@@ -10,12 +10,12 @@
 #include <netdb.h>
 #include <pthread.h>
 
-#include "cdata.h"
+#include "../cdata.h"
 
 #ifdef UI_BACKEND_NCURSES
-#include "ui/ncurses/backend.h"
+#include "../ui/ncurses/backend.h"
 #elif UI_BACKEND_SDL
-#include "ui/sdl/backend.h"
+#include "../ui/sdl/backend.h"
 #endif
 
 #define MSGQUEUE_INIT_SIZE (MSGBATCH_INIT_SIZE * 3)
@@ -94,20 +94,27 @@ void *recv_mngr_func(void *arg)
         uint8_t buf[sizeof(struct msg_batch)];
         struct msg_batch msgbatch;
         uint8_t *chunk;
-        
+
         if((recvbytes = recvfrom(sd, buf, sizeof(struct msg_batch),
                                  0, NULL, NULL)) < 0) {
             perror("client: recvfrom");
             continue;
         }
-
-        msgbatch.offset = buf[0] - 1;
-        memcpy(msgbatch.chunks, buf, buf[0]);
-
+        msgbatch.offset = (buf[0] * sizeof(struct msg));
+        memcpy(msgbatch.chunks, buf, msgbatch.offset + 1);
+        
         while((chunk = msg_batch_pop(&msgbatch)) != NULL) {
             struct msg m;
-            
+
             msg_unpack(chunk, &m);
+
+            if(m.type == MSGTYPE_CONNECT_OK) {
+                printf("You occupy slot number %d\n", m.header.player);
+                printf("MSGTYPE: %d\n", m.type);
+            } else if(m.type == MSGTYPE_CONNECT_NOTIFY) {
+                printf("New user connected with nick: %s\n", m.event.connect_notify.nick);
+            }
+            
             if(msgqueue_push(msgqueue, &m) == MSGQUEUE_ERROR) {
                 fprintf(stderr, "client: msgqueue_push: couldn't push data into queue.\n");
             }
@@ -161,6 +168,21 @@ int main(int argc, char **argv)
     pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
     pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
 
+    /* START TEST: send to the server MSGTYPE_CONNECT_ASK event. */
+    uint8_t buf[sizeof(struct msg)];
+    static struct msg m = {
+        .type = MSGTYPE_CONNECT_ASK,
+        .event = {
+            .connect_ask = {
+                .nick = "grouzen"
+            }
+        }
+    };
+
+    msg_pack(&m, buf);
+    sendto(sd, buf, sizeof(struct msg), 0, (struct sockaddr *) &server_addr, sizeof(struct sockaddr_in));
+    /* END TEST */
+    
     quit(0);
     
     return 0;

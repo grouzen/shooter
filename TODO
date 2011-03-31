@@ -23,7 +23,7 @@
       is much different, thread sends whole world's state to that client.
    
 
-   players list -+-> player 1 -> recieves data and inserts into messages queue
+   players list -+-> player 1 -> recieves data and inserts it into messages queue
    (slots)       +-> player 2 <-.                    |
                  +-> ...        |                    |
                  '-> player n   |                    |
@@ -33,11 +33,16 @@
             the world and sends them to the players.
 
 
+   queue_mngr_func() not always sends diffs to all players.
+   Player see only its viewport's zone around it, so it should not know about
+   events which happen outside of its visibility range, or for example
+   connection event which concerns only one player who sends it.
+
 *** todo for the server side.
 **** TODO Write function sync_mngr_func()
 **** TODO Write a handling of the events within queue_mngr_func()
 ***** DONE For begin let's handle connection event.
-****** TODO Make handshaking with client.
+****** DONE Make handshaking with client.
 **** TODO Think about synchronization between the server and a clients more detail.
      see item about sync_mngr_func() too.
 
@@ -60,6 +65,8 @@
      +- ui_mngr_thread: just init ui.
      |
      +- recv_mngr_thread: receives messages from server and adds them to msgqueue.
+     |                    Also it must watch on each message type from batch and if
+     |                    necessary handles some of them and than sends result to the server.
      |
      +- send_mngr_thread: reads last event and sends message to server.
      |
@@ -69,6 +76,7 @@
      `- ui_update_thread: reads msgqueue and updates UI accordingly.
                           Must be implemented for each ui backend.
             
+
 *** UI
     
     It must be like:
@@ -88,6 +96,8 @@
     | ................................... |
     | ................................... |
     | ................................... |
+    |-------------------------------------|
+    | Notify line                         |
     +-------------------------------------+
 
     Status line should look like that:

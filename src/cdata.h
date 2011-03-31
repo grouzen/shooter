@@ -10,7 +10,9 @@ enum {
     MSGTYPE_NONE = -1,
     MSGTYPE_WALK,
     MSGTYPE_SHOOT,
-    MSGTYPE_CONNECT
+    MSGTYPE_CONNECT_ASK,
+    MSGTYPE_CONNECT_OK,
+    MSGTYPE_CONNECT_NOTIFY
 };
 
 struct msgtype_walk {
@@ -25,10 +27,19 @@ struct msgtype_shoot {
 
 #define NICK_MAX_LEN 16
 
-struct msgtype_connect {
+struct msgtype_connect_ask {
     uint8_t nick[NICK_MAX_LEN]; // null-terminated.
 };
-    
+
+struct msgtype_connect_ok {
+    uint8_t ok; // > 0 - ok.
+};
+
+struct msgtype_connect_notify {
+    /* TODO: set postition and so on. */
+    uint8_t nick[NICK_MAX_LEN];
+};
+ 
 /*
  * General message structures
  */
@@ -43,17 +54,21 @@ struct msg {
     union {
         struct msgtype_walk walk;
         struct msgtype_shoot shoot;
-        struct msgtype_connect connect;
+        struct msgtype_connect_ask connect_ask;
+        struct msgtype_connect_ok connect_ok;
+        struct msgtype_connect_notify connect_notify;
     } event;
 };
 
-/* Optimization for minimizing number of system calls;
+/* msg_batch:
+ * Optimization for minimizing number of system calls;
  * client --| struct msg |--> server
  * server --| struct msg_batch |--> client
  * Thus we call socket_send() only one time
  * when sending difference between world's states.
  *
- * First byte - size, therefore size is limited about 255.
+ * First byte of the chunks array is size,
+ * therefore `struct msg_batch` can contains maximum 255 chunks.
  */
 #define MSGBATCH_INIT_SIZE 255
 #define MSGBATCH_BYTES (sizeof(struct msg) * MSGBATCH_INIT_SIZE + sizeof(uint8_t))
@@ -65,17 +80,27 @@ enum msg_batch_enum_t {
 
 struct msg_batch {
     uint8_t chunks[MSGBATCH_BYTES];
+    /* offset describes current offset in bytes
+       from the beginning of the chunks array
+       without first byte which describes number
+       of occupied chunks.
+    */
     uint16_t offset;
 };
 
 #define MSGBATCH_SIZE(b) ((b)->chunks[0])
 
 #define MAX_PLAYERS 16
+#define PLAYER_VIEWPORT_WIDTH 30
+#define PLAYER_VIEWPORT_HEIGHT 30
 
 struct player {
     struct sockaddr_in *addr;
-    uint8_t *nick;
+    struct msg_batch msgbatch;
+    uint8_t *nick; /* TODO: static allocated. */
     uint32_t seq;
+    uint16_t pos_x;
+    uint16_t pos_y;
 };
 
 enum players_enum_t {
@@ -88,11 +113,16 @@ struct players {
     int8_t count; // 0 = no players
 };
 
-#define FPS 5
+#define FPS 10
 
 struct ticks {
     uint64_t offset;
     uint64_t count;
+};
+
+enum msg_queue_enum_t {
+    MSGQUEUE_ERROR = 0,
+    MSGQUEUE_OK
 };
 
 void msg_pack(struct msg*, uint8_t*);

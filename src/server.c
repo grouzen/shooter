@@ -23,11 +23,6 @@ struct msg_queue {
     ssize_t top;
 };
 
-enum msg_queue_enum_t {
-    MSGQUEUE_ERROR = 0,
-    MSGQUEUE_OK
-};
-
 struct msg_queue *msgqueue_init(void)
 {
     struct msg_queue *q;
@@ -64,6 +59,7 @@ enum msg_queue_enum_t msgqueue_push(struct msg_queue *q, struct msg_queue_node *
         q->top++;
         memcpy(q->nodes[q->top]->addr, qnode->addr, sizeof(struct sockaddr_in));
         memcpy(q->nodes[q->top]->data, qnode->data, sizeof(struct msg));
+        
         return MSGQUEUE_OK;
     }
 
@@ -94,7 +90,6 @@ int sd;
  */
 void *recv_mngr_func(void *arg)
 {
-    uint8_t buf[sizeof(struct msg)];
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
     struct msg_queue_node *qnode;
@@ -102,11 +97,12 @@ void *recv_mngr_func(void *arg)
     qnode = malloc(sizeof(struct msg_queue_node));
     qnode->data = malloc(sizeof(struct msg));
     qnode->addr = malloc(sizeof(struct sockaddr_in));
-    memset(buf, 0, sizeof(struct msg));
 
     queue_mngr_ticks = ticks_start();
     
     while("hope is not dead") {
+        uint8_t buf[sizeof(struct msg)];
+        
         if(ticks_get_diff(queue_mngr_ticks) > 1000 / FPS) {
             ticks_update(queue_mngr_ticks);
             pthread_cond_signal(&queue_mngr_cond);
@@ -115,21 +111,69 @@ void *recv_mngr_func(void *arg)
         if(recvfrom(sd, buf, sizeof(struct msg), 0,
                     (struct sockaddr *) &client_addr, &client_addr_len) < 0) {
             perror("server: recvfrom");
+            continue;
         }
         
         msg_unpack(buf, qnode->data);
         qnode->addr = &client_addr;
         pthread_mutex_lock(&queue_mngr_mutex);
         if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
-            fprintf(stderr, "server: recvfrom: couldn't push data into queue.\n");
+            fprintf(stderr, "server: msgqueue_push: couldn't push data into queue.\n");
         }
         pthread_mutex_unlock(&queue_mngr_mutex);
-
-        memset(buf, 0, sizeof(struct msg));
     }
 }
 
+/* TODO: remove this fucking shit.
+enum event_enum_t {
+    EVENT_NEXT = 0,
+    EVENT_FURTHER
+};
+*/
 
+void event_connect_ask(struct msg_queue_node *qnode)
+{
+    struct player player;
+    struct msg msg;
+    int i;
+    
+    player.addr = qnode->addr;
+    player.nick = qnode->data->event.connect_ask.nick;
+
+    /* We will send MSGTYPE_CONNECT_OK message's type to the client. */
+    msg.type = MSGTYPE_CONNECT_OK;
+                
+    if(players_occupy(players, &player) == PLAYERS_ERROR) {
+        struct msg_batch msgbatch;
+                    
+        printf("There are no free slots. Server maintains %d players\n", MAX_PLAYERS);
+
+        msg.event.connect_ok.ok = 0;
+                    
+        msg_batch_push(&msgbatch, &msg);
+        sendto(sd, msgbatch.chunks, msgbatch.offset + 1, 0, (struct sockaddr *) qnode->addr, sizeof(struct sockaddr_in));
+    } else {
+        printf("Player has been connected with nick: %s, total players = %u\n",
+               players->slots[players->count - 1].nick, players->count);
+
+        /* TODO: set seq. Set pos_x and pos_y. */
+                    
+        /* Set order number for the new player. */
+        msg.header.player = players->count;
+        msg.event.connect_ok.ok = 1;
+
+        /* Push to the new player. */
+        msg_batch_push(&(players->slots[players->count - 1].msgbatch), &msg);
+        /* Notify rest players about new player's connection. */
+        memset(&msg, 0, sizeof(struct msg));
+        msg.type = MSGTYPE_CONNECT_NOTIFY;
+        memcpy(msg.event.connect_notify.nick, players->slots[players->count - 1].nick, NICK_MAX_LEN);
+        for(i = 0; i < players->count - 1; i++) {
+            msg_batch_push(&(players->slots[i].msgbatch), &msg);
+        }
+    }
+}
+    
 void *queue_mngr_func(void *arg)
 {
     struct msg_queue_node *qnode;
@@ -137,27 +181,37 @@ void *queue_mngr_func(void *arg)
     sleep(1);
     
     while("teh internetz exists") {
+        int i;
+        
         pthread_cond_wait(&queue_mngr_cond, &queue_mngr_mutex);
+
+        /* Refresh msgbatch for each player. */
+        for(i = 0; i < players->count; i++) {
+            memset(&(players->slots[i].msgbatch), 0, sizeof(struct msg_batch));
+        }
         
         /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
-            struct player player;
-            
+            /* TODO: check seq. */
+
+            /* TODO: for each case to write the function. */
             switch(qnode->data->type) {
-            case MSGTYPE_CONNECT:
-                player.addr = qnode->addr;
-                player.nick = qnode->data->event.connect.nick;
-                if(players_occupy(players, &player) == PLAYERS_ERROR) {
-                    fprintf(stderr, "There are no free slots.\n");
-                } else {
-                    printf("Player has been connected with nick: %s, total players = %u\n",
-                           players->slots[players->count - 1].nick, players->count);
-                }
+            case MSGTYPE_CONNECT_ASK:
+                event_connect_ask(qnode);
                 
                 break;
             default:
                 printf("Unknown event\n");
                 break;
+            }
+        }
+        
+        /* Send diff to each player. */
+        for(i = 0; i < players->count; i++) {
+            struct player *p = &(players->slots[i]);
+            
+            if(MSGBATCH_SIZE(&(p->msgbatch)) > 0) {
+                sendto(sd, p->msgbatch.chunks, p->msgbatch.offset + 1, 0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
             }
         }
         

@@ -52,16 +52,29 @@ static void msgtype_walk_pack(struct msg *m, uint8_t *buf)
 static void msgtype_shoot_pack(struct msg *m, uint8_t *buf)
 {
     *buf++ = m->event.shoot.gun_type;
-    //uint8_t gun_type = m->event.shoot.gun_type;
-    //pack8_int(buf, htons(gun_type));
 }
 
-static void msgtype_connect_pack(struct msg *m, uint8_t *buf)
+static void msgtype_connect_ask_pack(struct msg *m, uint8_t *buf)
 {
     int i;
 
-    for(i = 0; m->event.connect.nick[i] != '\0'; i++) {
-        *buf++ = m->event.connect.nick[i];
+    for(i = 0; m->event.connect_ask.nick[i] != '\0'; i++) {
+        *buf++ = m->event.connect_ask.nick[i];
+    }
+    *buf++ = '\0';
+}
+
+static void msgtype_connect_ok_pack(struct msg *m, uint8_t *buf)
+{
+    *buf++ = m->event.connect_ok.ok;
+}
+
+static void msgtype_connect_notify_pack(struct msg *m, uint8_t *buf)
+{
+    int i;
+
+    for(i = 0; m->event.connect_notify.nick[i] != '\0'; i++) {
+        *buf++ = m->event.connect_notify.nick[i];
     }
     *buf++ = '\0';
 }
@@ -78,18 +91,32 @@ static void msgtype_walk_unpack(uint8_t *buf, struct msg *m)
 
 static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
 {
-    //m->event.shoot.gun_type = ntohs(unpack16_int(buf));
     m->event.shoot.gun_type = (uint8_t) *buf++;
 }
 
-static void msgtype_connect_unpack(uint8_t *buf, struct msg *m)
+static void msgtype_connect_ask_unpack(uint8_t *buf, struct msg *m)
 {
     int i;
 
     for(i = 0; buf[i] != '\0'; i++) {
-        m->event.connect.nick[i] = buf[i];
+        m->event.connect_ask.nick[i] = buf[i];
     }
-    m->event.connect.nick[i] = '\0';
+    m->event.connect_ask.nick[i] = '\0';
+}
+
+static void msgtype_connect_ok_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.connect_ok.ok = (uint8_t) *buf++;
+}
+
+static void msgtype_connect_notify_unpack(uint8_t *buf, struct msg *m)
+{
+    int i;
+
+    for(i = 0; buf[i] != '\0'; i++) {
+        m->event.connect_notify.nick[i] = buf[i];
+    }
+    m->event.connect_notify.nick[i] = '\0';
 }
 
 /* Because I hate switches and all these condition statements
@@ -99,13 +126,17 @@ static void msgtype_connect_unpack(uint8_t *buf, struct msg *m)
 intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_walk_pack,
     (intptr_t) msgtype_shoot_pack,
-    (intptr_t) msgtype_connect_pack
+    (intptr_t) msgtype_connect_ask_pack,
+    (intptr_t) msgtype_connect_ok_pack,
+    (intptr_t) msgtype_connect_notify_pack
 };
 
 intptr_t msgtype_unpack_funcs[] = {
     (intptr_t) msgtype_walk_unpack,
     (intptr_t) msgtype_shoot_unpack,
-    (intptr_t) msgtype_connect_unpack
+    (intptr_t) msgtype_connect_ask_unpack,
+    (intptr_t) msgtype_connect_ok_unpack,
+    (intptr_t) msgtype_connect_notify_unpack
 };
 
 /* General packing/unpacking functions. */
@@ -142,9 +173,11 @@ void msg_unpack(uint8_t *buf, struct msg *m)
 
 enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
 {
-    if(b->offset <= MSGBATCH_BYTES - sizeof(struct msg)) {
-        msg_pack(m, &(b->chunks[b->offset]));
+    if(MSGBATCH_SIZE(b) < MSGBATCH_INIT_SIZE) {
+        msg_pack(m, &(b->chunks[b->offset + 1]));
         b->offset += sizeof(struct msg);
+        MSGBATCH_SIZE(b)++;
+        
         return MSGBATCH_OK;
     }
 
@@ -153,9 +186,11 @@ enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
 
 uint8_t *msg_batch_pop(struct msg_batch *b)
 {
-    if(b->offset > sizeof(struct msg)) {
+    if(MSGBATCH_SIZE(b) > 0) {
         b->offset -= sizeof(struct msg);
-        return &(b->chunks[b->offset]);
+        MSGBATCH_SIZE(b)--;
+        
+        return &(b->chunks[b->offset + 1]);
     }
 
     return NULL;
