@@ -40,9 +40,18 @@
 
 *** todo for the server side.
 **** TODO Write function sync_mngr_func()
-**** TODO Write a handling of the events within queue_mngr_func()
+**** Write a handling of the events within queue_mngr_func()
 ***** DONE For begin let's handle connection event.
 ****** DONE Make handshaking with client.
+***** Disconnect event from client and server
+****** DONE Client
+****** DONE Server
+**** TODO add uint8_t key[KEY_LEN] to `struct player`
+     It's necessary for security reason.
+     For example a client wants to disconnect from the server, it sends
+     message with its id and server like the fucking stupid moron disconnects
+     other client, because the first client just changed value of id field
+     in the message. Oops!
 **** TODO Think about synchronization between the server and a clients more detail.
      see item about sync_mngr_func() too.
 

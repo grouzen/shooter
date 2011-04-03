@@ -7,12 +7,15 @@
  * Structures which describes message body
  */
 enum {
-    MSGTYPE_NONE = -1,
-    MSGTYPE_WALK,
+    //MSGTYPE_NONE = -1,
+    MSGTYPE_WALK = 0,
     MSGTYPE_SHOOT,
     MSGTYPE_CONNECT_ASK,
     MSGTYPE_CONNECT_OK,
-    MSGTYPE_CONNECT_NOTIFY
+    MSGTYPE_CONNECT_NOTIFY,
+    MSGTYPE_DISCONNECT_SERVER,
+    MSGTYPE_DISCONNECT_CLIENT,
+    MSGTYPE_DISCONNECT_NOTIFY
 };
 
 struct msgtype_walk {
@@ -33,13 +36,26 @@ struct msgtype_connect_ask {
 
 struct msgtype_connect_ok {
     uint8_t ok; // > 0 - ok.
+    uint8_t player;
 };
 
 struct msgtype_connect_notify {
     /* TODO: set postition and so on. */
     uint8_t nick[NICK_MAX_LEN];
 };
- 
+
+struct msgtype_disconnect_server {
+    uint8_t stub;
+};
+
+struct msgtype_disconnect_client {
+    uint8_t stub;
+};
+
+struct msgtype_disconnect_notify {
+    uint8_t nick[NICK_MAX_LEN];
+};
+
 /*
  * General message structures
  */
@@ -57,6 +73,9 @@ struct msg {
         struct msgtype_connect_ask connect_ask;
         struct msgtype_connect_ok connect_ok;
         struct msgtype_connect_notify connect_notify;
+        struct msgtype_disconnect_server disconnect_server;
+        struct msgtype_disconnect_client disconnect_client;
+        struct msgtype_disconnect_notify disconnect_notify;
     } event;
 };
 
@@ -90,28 +109,8 @@ struct msg_batch {
 
 #define MSGBATCH_SIZE(b) ((b)->chunks[0])
 
-#define MAX_PLAYERS 16
 #define PLAYER_VIEWPORT_WIDTH 30
 #define PLAYER_VIEWPORT_HEIGHT 30
-
-struct player {
-    struct sockaddr_in *addr;
-    struct msg_batch msgbatch;
-    uint8_t *nick; /* TODO: static allocated. */
-    uint32_t seq;
-    uint16_t pos_x;
-    uint16_t pos_y;
-};
-
-enum players_enum_t {
-    PLAYERS_ERROR = 0,
-    PLAYERS_OK
-};
-
-struct players {
-    struct player slots[MAX_PLAYERS];
-    int8_t count; // 0 = no players
-};
 
 #define FPS 10
 
@@ -129,10 +128,6 @@ void msg_pack(struct msg*, uint8_t*);
 void msg_unpack(uint8_t*, struct msg*);
 enum msg_batch_enum_t msg_batch_push(struct msg_batch*, struct msg*);
 uint8_t *msg_batch_pop(struct msg_batch*);
-struct players *players_init(void);
-void players_free(struct players*);
-enum players_enum_t players_occupy(struct players*, struct player*);
-enum players_enum_t players_release(struct players*);
 uint64_t ticks_get(void);
 struct ticks *ticks_start(void);
 void ticks_update(struct ticks*);

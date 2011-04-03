@@ -14,13 +14,13 @@ client_ncurses_headers = src/ui/ncurses/backend.h
 client_sdl_headers = src/ui/sdl/backend.h
 
 # Tests
-tests_target = test_client_connect
-test_client_connect_target = test_client_connect
+tests_target = test_client
+test_client_target = test_client
 
 test_generic_objs = src/cdata.o
-test_client_connect_objs = src/test/test_client_connect.o src/ui/ncurses/backend.o
+test_client_objs = src/test/test_client.o src/ui/ncurses/backend.o
 test_generic_headers = src/cdata.h
-test_client_connect_headers = src/ui/ncurses/backend.h
+test_client_headers = src/ui/ncurses/backend.h
 
 LDFLAGS += -pthread
 CFLAGS += -Wall -Wextra -g
@@ -47,12 +47,12 @@ $(client_sdl_objs): $(client_generic_headers) $(client_sdl_headers)
 
 tests: $(tests_target)
 
-test_client_connect: $(test_generic_objs) $(test_client_connect_objs)
-	gcc -DUI_BACKEND_NCURSES -o $(test_client_connect_target) $(test_generic_objs) $(test_client_connect_objs) $(LDFLAGS) $(CFLAGS)
+test_client: $(test_generic_objs) $(test_client_objs)
+	gcc -DUI_BACKEND_NCURSES -o $(test_client_target) $(test_generic_objs) $(test_client_objs) $(LDFLAGS) $(CFLAGS)
 
-$(test_generic_objs): $(test_generic_headers) $(test_client_connect_headers)
+$(test_generic_objs): $(test_generic_headers) $(test_client_headers)
 
-$(test_client_connect_objs): $(test_generic_headers) $(test_client_connect_headers)
+$(test_client_objs): $(test_generic_headers) $(test_client_headers)
 
 clean:
 	rm -fv $(server_target) $(clients_target) $(tests_target) src/*.o src/ui/*/*.o src/test/*.o

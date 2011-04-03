@@ -77,8 +77,32 @@ pthread_attr_t common_attr;
 struct ticks *ui_mngr_ticks;
 struct sockaddr_in server_addr;
 struct msg_queue *msgqueue = NULL;
-struct players *players = NULL;
+uint8_t player; /* Your slot number in `struct players`. */
+uint32_t seq; /* Your seq number in `struct players`. */
 int sd;
+
+void send_event(struct msg *m)
+{
+    uint8_t buf[sizeof(struct msg)];
+    
+    m->header.player = player;
+    m->header.seq = seq;
+
+    msg_pack(m, buf);
+    
+    sendto(sd, buf, sizeof(struct msg),
+           0, (struct sockaddr *) &server_addr, sizeof(struct sockaddr_in));
+}
+
+void event_disconnect_client(void)
+{
+    struct msg msg;
+
+    msg.type = MSGTYPE_DISCONNECT_CLIENT;
+    msg.event.disconnect_client.stub = 1;
+
+    send_event(&msg);
+}
 
 /* Init ui_backend. */
 void *ui_mngr_func(void *arg)
@@ -100,9 +124,9 @@ void *recv_mngr_func(void *arg)
             perror("client: recvfrom");
             continue;
         }
-
-        msgbatch.offset = buf[0] - 1;
-        memcpy(msgbatch.chunks, buf, buf[0]);
+        
+        msgbatch.offset = (buf[0] * sizeof(struct msg));
+        memcpy(msgbatch.chunks, buf, msgbatch.offset + 1);
 
         while((chunk = msg_batch_pop(&msgbatch)) != NULL) {
             struct msg m;
@@ -125,6 +149,9 @@ void quit(int signum)
     
     pthread_join(recv_mngr_thread, NULL);
     pthread_join(ui_mngr_thread, NULL);
+
+    event_disconnect_client();
+    
     close(sd);
     pthread_attr_destroy(&common_attr);
     pthread_exit(NULL);
@@ -140,7 +167,6 @@ int main(int argc, char **argv)
     signal(SIGQUIT, quit);
 
     msgqueue = msgqueue_init();
-    players = players_init();
     
     ui_mngr_ticks = ticks_start();
     

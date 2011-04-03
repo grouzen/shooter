@@ -67,6 +67,7 @@ static void msgtype_connect_ask_pack(struct msg *m, uint8_t *buf)
 static void msgtype_connect_ok_pack(struct msg *m, uint8_t *buf)
 {
     *buf++ = m->event.connect_ok.ok;
+    *buf++ = m->event.connect_ok.player;
 }
 
 static void msgtype_connect_notify_pack(struct msg *m, uint8_t *buf)
@@ -75,6 +76,26 @@ static void msgtype_connect_notify_pack(struct msg *m, uint8_t *buf)
 
     for(i = 0; m->event.connect_notify.nick[i] != '\0'; i++) {
         *buf++ = m->event.connect_notify.nick[i];
+    }
+    *buf++ = '\0';
+}
+
+static void msgtype_disconnect_server_pack(struct msg *m, uint8_t *buf)
+{
+    *buf++ = m->event.disconnect_server.stub;
+}
+
+static void msgtype_disconnect_client_pack(struct msg *m, uint8_t *buf)
+{
+    *buf++ = m->event.disconnect_client.stub;
+}
+
+static void msgtype_disconnect_notify_pack(struct msg *m, uint8_t *buf)
+{
+    int i;
+    
+    for(i = 0; m->event.disconnect_notify.nick[i] != '\0'; i++) {
+        *buf++ = m->event.disconnect_notify.nick[i];
     }
     *buf++ = '\0';
 }
@@ -107,6 +128,7 @@ static void msgtype_connect_ask_unpack(uint8_t *buf, struct msg *m)
 static void msgtype_connect_ok_unpack(uint8_t *buf, struct msg *m)
 {
     m->event.connect_ok.ok = (uint8_t) *buf++;
+    m->event.connect_ok.player = (uint8_t) *buf++;
 }
 
 static void msgtype_connect_notify_unpack(uint8_t *buf, struct msg *m)
@@ -119,6 +141,26 @@ static void msgtype_connect_notify_unpack(uint8_t *buf, struct msg *m)
     m->event.connect_notify.nick[i] = '\0';
 }
 
+static void msgtype_disconnect_server_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.disconnect_server.stub = (uint8_t) *buf++;
+}
+
+static void msgtype_disconnect_client_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.disconnect_client.stub = (uint8_t) *buf++;
+}
+
+static void msgtype_disconnect_notify_unpack(uint8_t *buf, struct msg *m)
+{
+    int i;
+
+    for(i = 0; buf[i] != '\0'; i++) {
+        m->event.disconnect_notify.nick[i] = buf[i];
+    }
+    m->event.disconnect_notify.nick[i] = '\0';
+}
+
 /* Because I hate switches and all these condition statements
  * I prefer to use calls table. They must be synced with enum
  * declared in cdata.h.
@@ -128,7 +170,10 @@ intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_shoot_pack,
     (intptr_t) msgtype_connect_ask_pack,
     (intptr_t) msgtype_connect_ok_pack,
-    (intptr_t) msgtype_connect_notify_pack
+    (intptr_t) msgtype_connect_notify_pack,
+    (intptr_t) msgtype_disconnect_server_pack,
+    (intptr_t) msgtype_disconnect_client_pack,
+    (intptr_t) msgtype_disconnect_notify_pack
 };
 
 intptr_t msgtype_unpack_funcs[] = {
@@ -136,7 +181,10 @@ intptr_t msgtype_unpack_funcs[] = {
     (intptr_t) msgtype_shoot_unpack,
     (intptr_t) msgtype_connect_ask_unpack,
     (intptr_t) msgtype_connect_ok_unpack,
-    (intptr_t) msgtype_connect_notify_unpack
+    (intptr_t) msgtype_connect_notify_unpack,
+    (intptr_t) msgtype_disconnect_server_unpack,
+    (intptr_t) msgtype_disconnect_client_unpack,
+    (intptr_t) msgtype_disconnect_notify_unpack
 };
 
 /* General packing/unpacking functions. */
@@ -144,16 +192,17 @@ void msg_pack(struct msg *m, uint8_t *buf)
 {
     void (*msgtype_func)(struct msg*, uint8_t*);
     uint32_t seq = m->header.seq;
-    
+
     pack_int32(buf, htonl(seq));
+
     buf += 4;
     *buf++ = m->header.player;
-    *buf++ = (uint8_t) m->type;
+    *buf++ = m->type;
 
-    if(m->type != MSGTYPE_NONE) {
-        msgtype_func = (void *) msgtype_pack_funcs[m->type];
-        msgtype_func(m, buf);
-    }
+    //if(m->type != MSGTYPE_NONE) {
+    msgtype_func = (void *) msgtype_pack_funcs[m->type];
+    msgtype_func(m, buf);
+    //}
 }
 
 void msg_unpack(uint8_t *buf, struct msg *m)
@@ -162,13 +211,13 @@ void msg_unpack(uint8_t *buf, struct msg *m)
 
     m->header.seq = ntohl(unpack_int32(buf));
     buf += 4;
-    m->header.player = (uint8_t) *buf++;
-    m->type = (uint8_t) *buf++;
+    m->header.player = *buf++;
+    m->type = *buf++;
 
-    if(m->type != MSGTYPE_NONE) {
-        msgtype_func = (void *) msgtype_unpack_funcs[m->type];
-        msgtype_func(buf, m);
-    }
+    //if(m->type != MSGTYPE_NONE) {
+    msgtype_func = (void *) msgtype_unpack_funcs[m->type];
+    msgtype_func(buf, m);
+    //}
 }
 
 enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
@@ -194,64 +243,6 @@ uint8_t *msg_batch_pop(struct msg_batch *b)
     }
 
     return NULL;
-}
-
-struct players *players_init(void)
-{
-    struct players *pls;
-    int i;
-
-    pls = malloc(sizeof(struct players));
-
-    for(i = 0; i < MAX_PLAYERS; i++) {
-        pls->slots[i].addr = malloc(sizeof(struct sockaddr_in));
-        pls->slots[i].nick = malloc(sizeof(uint8_t) * NICK_MAX_LEN);
-    }
-
-    pls->count = 0;
-
-    return pls;
-}
-
-void players_free(struct players *pls)
-{
-    int i;
-
-    for(i = 0; i < MAX_PLAYERS; i++) {
-        free(pls->slots[i].addr);
-        free(pls->slots[i].nick);
-    }
-
-    free(pls);
-}
-
-enum players_enum_t players_occupy(struct players *pls, struct player *p)
-{
-    struct player *slot;
-
-    if(pls->count < MAX_PLAYERS) {
-        pls->count++;
-        
-        slot = &(pls->slots[pls->count - 1]);
-        memcpy(slot->addr, p->addr, sizeof(struct sockaddr_in));
-        memcpy(slot->nick, p->nick, strlen((char *) p->nick) + 1);
-        slot->seq = 0;
-
-        return PLAYERS_OK;
-    }
-
-    return PLAYERS_ERROR;
-}
-
-enum players_enum_t players_release(struct players *pls)
-{
-    if(pls->count > 0) {
-        pls->count--;
-
-        return PLAYERS_OK;
-    }
-
-    return PLAYERS_ERROR;
 }
 
 /* These functions work in fact with ms. */

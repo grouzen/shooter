@@ -11,6 +11,149 @@
 
 #include "cdata.h"
 
+#define MAX_PLAYERS 16
+
+enum players_enum_t {
+    PLAYERS_ERROR = 0,
+    PLAYERS_OK
+};
+
+struct player {
+    struct sockaddr_in *addr;
+    struct msg_batch msgbatch;
+    uint8_t player; /* slot's number. */
+    uint8_t *nick;
+    uint32_t seq;
+    uint16_t pos_x;
+    uint16_t pos_y;
+};
+
+struct players_slot {
+    struct players_slot *next;
+    struct players_slot *prev;
+    struct player *p;
+};
+
+struct players_slots {
+    struct players_slot *root;
+    uint8_t count;
+    /* Describes what slots are free and occupied.
+       It is an array of pointers to slot,
+       if it equals NULL than slot is free.
+    */
+    struct players_slot *slots[MAX_PLAYERS];
+};
+
+struct players_slots *players_init(void)
+{
+    struct players_slots *slots;
+    
+    slots = malloc(sizeof(struct players_slots));
+    slots->root = NULL;
+    slots->count = 0;
+    memset(slots->slots, 0, MAX_PLAYERS * sizeof(struct players_slot *));
+
+    return slots;
+}
+
+void players_free(struct players_slots *slots)
+{
+    struct players_slot *cslot, *nslot;
+
+    nslot = slots->root;
+
+    while(nslot != NULL) {
+        cslot = nslot;
+        nslot = nslot->next;
+
+        free(cslot->p->addr);
+        free(cslot->p->nick);
+        free(cslot->p);
+        free(cslot);
+    }
+    
+    free(slots);
+}
+
+struct player *players_occupy(struct players_slots *slots, struct player *p)
+{
+    if(slots->count < MAX_PLAYERS - 1) {
+        struct players_slot *oslot = slots->root;
+        struct players_slot *new = malloc(sizeof(struct players_slot));
+        struct players_slot *pslot = NULL;
+        int i;
+
+        memset(new, 0, sizeof(struct players_slot));
+        slots->count++;
+
+        while(oslot != NULL) {
+            pslot = oslot;
+            oslot = oslot->next;
+        }
+        
+        oslot = new;
+        oslot->prev = pslot;
+        oslot->next = NULL;
+        oslot->p = malloc(sizeof(struct player));
+        memset(oslot->p, 0, sizeof(struct player));
+        oslot->p->addr = malloc(sizeof(struct sockaddr_in));
+        oslot->p->nick = malloc(sizeof(uint8_t) * NICK_MAX_LEN);
+        memcpy(oslot->p->addr, p->addr, sizeof(struct sockaddr_in));
+        strncpy((char *) oslot->p->nick, (char *) p->nick, NICK_MAX_LEN);
+
+        if(slots->root == NULL) {
+            slots->root = oslot;
+        } else {
+            pslot->next = oslot;
+        }
+        
+        for(i = 0; i < MAX_PLAYERS; i++) {
+            if(slots->slots[i] == NULL) {
+                slots->slots[i] = oslot;
+                oslot->p->player = (uint8_t) i;
+                
+                return oslot->p;
+            }
+        }
+    }
+
+    return NULL;
+}
+
+enum players_enum_t players_release(struct players_slots *slots, uint8_t player)
+{
+    if(slots->count > 0 && slots->slots[player] != NULL) {
+        struct players_slot *cslot, *pslot, *nslot;
+        slots->count--;
+        
+        cslot = slots->slots[player];
+        nslot = cslot->next;
+        pslot = cslot->prev;
+        
+        if(cslot == slots->root) {
+            slots->root = nslot;
+        } else {
+            pslot->next = nslot;
+        }
+
+        if(nslot != NULL) {
+            nslot->prev = pslot;
+        }
+
+        /* Make slot free. */
+        free(cslot->p->addr);
+        free(cslot->p->nick);
+        free(cslot->p);
+        free(cslot);
+        
+        slots->slots[player] = NULL;
+
+        return PLAYERS_OK;
+    }
+
+    return PLAYERS_ERROR;
+}
+
 #define MSGQUEUE_INIT_SIZE 64
 
 struct msg_queue_node {
@@ -76,8 +219,8 @@ struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
 }
 
 struct msg_queue *msgqueue = NULL;
-struct players *players = NULL;
-pthread_mutex_t queue_mngr_mutex;
+struct players_slots *players = NULL;
+pthread_mutex_t msgqueue_mutex;
 pthread_cond_t queue_mngr_cond;
 pthread_t recv_mngr_thread, queue_mngr_thread;
 pthread_attr_t common_attr;
@@ -116,60 +259,119 @@ void *recv_mngr_func(void *arg)
         
         msg_unpack(buf, qnode->data);
         qnode->addr = &client_addr;
-        pthread_mutex_lock(&queue_mngr_mutex);
+        pthread_mutex_lock(&msgqueue_mutex);
         if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
             fprintf(stderr, "server: msgqueue_push: couldn't push data into queue.\n");
         }
-        pthread_mutex_unlock(&queue_mngr_mutex);
+        pthread_mutex_unlock(&msgqueue_mutex);
     }
 }
 
-/* TODO: remove this fucking shit.
-enum event_enum_t {
-    EVENT_NEXT = 0,
-    EVENT_FURTHER
-};
-*/
+void event_disconnect_server(void)
+{
+    struct players_slot *slot = players->root;
+    struct msg_batch msgbatch;
+    struct msg msg;
+
+    msg.type = MSGTYPE_DISCONNECT_SERVER;
+    msg.event.disconnect_server.stub = 1;
+    
+    memset(&msgbatch, 0, sizeof(struct msg_batch));
+    msg_batch_push(&msgbatch, &msg);
+    while(slot != NULL) {
+        struct player *p = slot->p;
+        
+        sendto(sd, msgbatch.chunks, msgbatch.offset + 1,
+               0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
+
+        slot = slot->next;
+    }
+}
+
+void event_disconnect_client(struct msg_queue_node *qnode)
+{
+    struct players_slot *slot;
+    struct msg_batch msgbatch;
+    struct msg msg;
+
+    msg.type = MSGTYPE_DISCONNECT_NOTIFY;
+    if(players->slots[qnode->data->header.player] != NULL) {
+        strncpy((char *) msg.event.disconnect_notify.nick,
+                (char *) players->slots[qnode->data->header.player]->p->nick, NICK_MAX_LEN);
+    }
+
+    if(players_release(players, qnode->data->header.player) == PLAYERS_ERROR) {
+        printf("Couldn't remove the player from slots: %u\n", qnode->data->header.player);
+        
+        return;
+    }
+
+    printf("Player has been disconnected: %s\n", msg.event.disconnect_notify.nick);
+    
+    memset(&msgbatch, 0, sizeof(struct msg_batch));
+    msg_batch_push(&msgbatch, &msg);
+
+    slot = players->root;
+    while(slot != NULL) {
+        struct player *p = slot->p;
+        
+        sendto(sd, msgbatch.chunks, msgbatch.offset + 1,
+               0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
+
+        slot = slot->next;
+    }
+
+}
 
 void event_connect_ask(struct msg_queue_node *qnode)
 {
     struct player player;
+    struct player *newplayer;
     struct msg msg;
-    int i;
     
     player.addr = qnode->addr;
     player.nick = qnode->data->event.connect_ask.nick;
 
     /* We will send MSGTYPE_CONNECT_OK message's type to the client. */
     msg.type = MSGTYPE_CONNECT_OK;
-                
-    if(players_occupy(players, &player) == PLAYERS_ERROR) {
+    newplayer = players_occupy(players, &player);
+    
+    if(newplayer == NULL) {
         struct msg_batch msgbatch;
-                    
-        printf("There are no free slots. Server maintains %d players\n", MAX_PLAYERS);
+        
+        printf("There are no free slots. Server maintains maximum %u players\n", MAX_PLAYERS);
 
         msg.event.connect_ok.ok = 0;
-                    
+
+        memset(&msgbatch, 0, sizeof(struct msg_batch));
         msg_batch_push(&msgbatch, &msg);
-        sendto(sd, msgbatch.chunks, msgbatch.offset + 1, 0, (struct sockaddr *) qnode->addr, sizeof(struct sockaddr_in));
+        sendto(sd, msgbatch.chunks, msgbatch.offset + 1,
+               0, (struct sockaddr *) qnode->addr, sizeof(struct sockaddr_in));
     } else {
-        printf("Player has been connected with nick: %s, total players = %u\n",
-               players->slots[players->count - 1].nick, players->count);
+        struct players_slot *slot = players->root;
+        
+        printf("Player has been connected with nick: %s, total players: %u\n",
+               newplayer->nick, players->count);
 
         /* TODO: set seq. Set pos_x and pos_y. */
                     
         /* Set order number for the new player. */
-        msg.header.player = players->count;
+        msg.header.seq = 0;
+        msg.event.connect_ok.player = newplayer->player;
         msg.event.connect_ok.ok = 1;
 
         /* Push to the new player. */
-        msg_batch_push(&(players->slots[players->count - 1].msgbatch), &msg);
+        msg_batch_push(&(newplayer->msgbatch), &msg);
         /* Notify rest players about new player's connection. */
         memset(&msg, 0, sizeof(struct msg));
         msg.type = MSGTYPE_CONNECT_NOTIFY;
-        memcpy(msg.event.connect_notify.nick, players->slots[players->count - 1].nick, NICK_MAX_LEN);
-        for(i = 0; i < players->count - 1; i++) {
-            msg_batch_push(&(players->slots[i].msgbatch), &msg);
+        strncpy((char *) msg.event.connect_notify.nick, (char *) newplayer->nick, NICK_MAX_LEN);
+        while(slot != NULL) {
+            if(slot->p != newplayer) {
+                msg.header.seq = ++(slot->p->seq);
+                msg_batch_push(&(slot->p->msgbatch), &msg);
+            }
+            slot = slot->next;
         }
     }
 }
@@ -181,41 +383,47 @@ void *queue_mngr_func(void *arg)
     sleep(1);
     
     while("teh internetz exists") {
-        int i;
+        struct players_slot *slot = players->root;
         
-        pthread_cond_wait(&queue_mngr_cond, &queue_mngr_mutex);
+        pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
 
         /* Refresh msgbatch for each player. */
-        for(i = 0; i < players->count; i++) {
-            memset(&(players->slots[i].msgbatch), 0, sizeof(struct msg_batch));
+        while(slot != NULL) {
+            memset(&(slot->p->msgbatch), 0, sizeof(struct msg_batch));
+            slot = slot->next;
         }
         
         /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
             /* TODO: check seq. */
 
-            /* TODO: for each case to write the function. */
             switch(qnode->data->type) {
             case MSGTYPE_CONNECT_ASK:
-                event_connect_ask(qnode);
-                
+                event_connect_ask(qnode);                
+                break;
+            case MSGTYPE_DISCONNECT_CLIENT:
+                event_disconnect_client(qnode);
                 break;
             default:
                 printf("Unknown event\n");
                 break;
             }
         }
-        
+
         /* Send diff to each player. */
-        for(i = 0; i < players->count; i++) {
-            struct player *p = &(players->slots[i]);
+        slot = players->root;
+        while(slot != NULL) {
+            struct player *p = slot->p;
             
             if(MSGBATCH_SIZE(&(p->msgbatch)) > 0) {
-                sendto(sd, p->msgbatch.chunks, p->msgbatch.offset + 1, 0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
+                sendto(sd, p->msgbatch.chunks, p->msgbatch.offset + 1,
+                       0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
             }
+            
+            slot = slot->next;
         }
         
-        pthread_mutex_unlock(&queue_mngr_mutex);
+        pthread_mutex_unlock(&msgqueue_mutex);
     }
 }
 
@@ -228,11 +436,14 @@ void quit(int signum)
     
     pthread_join(recv_mngr_thread, NULL);
     pthread_join(queue_mngr_thread, NULL);
+    
+    event_disconnect_server();
+    
     close(sd);
     msgqueue_free(msgqueue);
     players_free(players);
     pthread_attr_destroy(&common_attr);
-    pthread_mutex_destroy(&queue_mngr_mutex);
+    pthread_mutex_destroy(&msgqueue_mutex);
     pthread_cond_destroy(&queue_mngr_cond);
     pthread_exit(NULL);
 }
@@ -269,7 +480,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
     
-    pthread_mutex_init(&queue_mngr_mutex, NULL);
+    pthread_mutex_init(&msgqueue_mutex, NULL);
     pthread_cond_init(&queue_mngr_cond, NULL);
     
     pthread_attr_init(&common_attr);
