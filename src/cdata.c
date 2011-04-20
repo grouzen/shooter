@@ -7,6 +7,11 @@
 
 #include "cdata.h"
 
+struct weapon weapons[] = {
+    {"gun", 20, 5, 0, 0, 0},
+    {"rocket", 90, 40, 3, 40, 10}
+};
+
 /* TODO: pack_float(). */
 static void pack_int32(uint8_t *buf, uint32_t x)
 {
@@ -38,10 +43,13 @@ static uint16_t unpack16_int(uint8_t *buf)
  */
 static void msgtype_walk_pack(struct msg *m, uint8_t *buf)
 {
-    uint16_t pos_x = m->event.walk.pos_x;
-    uint16_t pos_y = m->event.walk.pos_y;
-    
     *buf++ = m->event.walk.direction;
+}
+
+static void msgtype_player_position_pack(struct msg *m, uint8_t *buf)
+{
+    uint16_t pos_x = m->event.player_position.pos_x;
+    uint16_t pos_y = m->event.player_position.pos_y;
 
     pack16_int(buf, htons(pos_x));
     buf += 2;
@@ -67,7 +75,7 @@ static void msgtype_connect_ask_pack(struct msg *m, uint8_t *buf)
 static void msgtype_connect_ok_pack(struct msg *m, uint8_t *buf)
 {
     *buf++ = m->event.connect_ok.ok;
-    *buf++ = m->event.connect_ok.player;
+    *buf++ = m->event.connect_ok.id;
 }
 
 static void msgtype_connect_notify_pack(struct msg *m, uint8_t *buf)
@@ -103,10 +111,14 @@ static void msgtype_disconnect_notify_pack(struct msg *m, uint8_t *buf)
 /* ... and for unpacking. */
 static void msgtype_walk_unpack(uint8_t *buf, struct msg *m)
 {
-    m->event.walk.direction = (uint8_t) *buf++;
-    m->event.walk.pos_x = ntohs(unpack16_int(buf));
+    m->event.walk.direction = *buf++;
+}
+
+static void msgtype_player_position_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.player_position.pos_x = ntohs(unpack16_int(buf));
     buf += 2;
-    m->event.walk.pos_y = ntohs(unpack16_int(buf));
+    m->event.player_position.pos_y = ntohs(unpack16_int(buf));
     buf += 2;
 }
 
@@ -128,7 +140,7 @@ static void msgtype_connect_ask_unpack(uint8_t *buf, struct msg *m)
 static void msgtype_connect_ok_unpack(uint8_t *buf, struct msg *m)
 {
     m->event.connect_ok.ok = (uint8_t) *buf++;
-    m->event.connect_ok.player = (uint8_t) *buf++;
+    m->event.connect_ok.id = (uint8_t) *buf++;
 }
 
 static void msgtype_connect_notify_unpack(uint8_t *buf, struct msg *m)
@@ -167,6 +179,7 @@ static void msgtype_disconnect_notify_unpack(uint8_t *buf, struct msg *m)
  */
 intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_walk_pack,
+    (intptr_t) msgtype_player_position_pack,
     (intptr_t) msgtype_shoot_pack,
     (intptr_t) msgtype_connect_ask_pack,
     (intptr_t) msgtype_connect_ok_pack,
@@ -178,6 +191,7 @@ intptr_t msgtype_pack_funcs[] = {
 
 intptr_t msgtype_unpack_funcs[] = {
     (intptr_t) msgtype_walk_unpack,
+    (intptr_t) msgtype_player_position_unpack,
     (intptr_t) msgtype_shoot_unpack,
     (intptr_t) msgtype_connect_ask_unpack,
     (intptr_t) msgtype_connect_ok_unpack,
@@ -196,13 +210,11 @@ void msg_pack(struct msg *m, uint8_t *buf)
     pack_int32(buf, htonl(seq));
 
     buf += 4;
-    *buf++ = m->header.player;
+    *buf++ = m->header.id;
     *buf++ = m->type;
 
-    //if(m->type != MSGTYPE_NONE) {
     msgtype_func = (void *) msgtype_pack_funcs[m->type];
     msgtype_func(m, buf);
-    //}
 }
 
 void msg_unpack(uint8_t *buf, struct msg *m)
@@ -211,13 +223,11 @@ void msg_unpack(uint8_t *buf, struct msg *m)
 
     m->header.seq = ntohl(unpack_int32(buf));
     buf += 4;
-    m->header.player = *buf++;
+    m->header.id = *buf++;
     m->type = *buf++;
 
-    //if(m->type != MSGTYPE_NONE) {
     msgtype_func = (void *) msgtype_unpack_funcs[m->type];
     msgtype_func(buf, m);
-    //}
 }
 
 enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
@@ -282,5 +292,47 @@ void ticks_update(struct ticks *tc)
 
 uint64_t ticks_get_diff(struct ticks *tc)
 {
+
     return ticks_get() - (tc->offset + tc->count);
+}
+
+struct player *player_init(void)
+{
+    struct player *p;
+
+    p = malloc(sizeof(struct player));
+    memset(p, 0, sizeof(struct player));
+    p->nick = malloc(sizeof(uint8_t) * NICK_MAX_LEN);
+#ifdef _SERVER_
+    p->addr = malloc(sizeof(struct sockaddr_in));
+#endif
+    
+    return p;
+}
+
+void player_free(struct player *p)
+{
+    free(p->nick);
+#ifdef _SERVER_
+    free(p->addr);
+#endif
+    free(p);
+}
+
+/* TODO: load map from file. */
+struct map *map_load(void)
+{
+    struct map *m = malloc(sizeof(struct map));
+
+    memset(m, 0, sizeof(struct map));
+    
+    m->width = 100 + rand() % 500;
+    m->height = 100 + rand() % 500;
+    
+    return m;
+}
+
+void map_unload(struct map *m)
+{
+    free(m);
 }

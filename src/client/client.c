@@ -10,20 +10,20 @@
 #include <netdb.h>
 #include <pthread.h>
 
-#include "cdata.h"
+#include "../cdata.h"
+#include "ui/backend.h"
+#include "client.h"
 
-#ifdef UI_BACKEND_NCURSES
-#include "ui/ncurses/backend.h"
-#elif UI_BACKEND_SDL
-#include "ui/sdl/backend.h"
-#endif
-
-#define MSGQUEUE_INIT_SIZE (MSGBATCH_INIT_SIZE * 3)
-
-struct msg_queue {
-    struct msg *data[MSGQUEUE_INIT_SIZE];
-    ssize_t top;
-};
+pthread_t ui_mngr_thread, recv_mngr_thread;
+pthread_attr_t common_attr;
+pthread_mutex_t msgqueue_mutex;
+pthread_cond_t queue_mngr_cond;
+struct ticks *ui_mngr_ticks;
+struct sockaddr_in server_addr;
+struct msg_queue *msgqueue = NULL;
+struct player *player = NULL;
+struct map *map = NULL;
+int sd;
 
 struct msg_queue *msgqueue_init(void)
 {
@@ -72,21 +72,33 @@ struct msg *msgqueue_pop(struct msg_queue *q)
     return NULL;
 }
 
-pthread_t ui_mngr_thread, recv_mngr_thread;
-pthread_attr_t common_attr;
-struct ticks *ui_mngr_ticks;
-struct sockaddr_in server_addr;
-struct msg_queue *msgqueue = NULL;
-uint8_t player; /* Your slot number in `struct players`. */
-uint32_t seq; /* Your seq number in `struct players`. */
-int sd;
+void quit(int signum)
+{    
+    if(signum > 0) {
+        pthread_cancel(recv_mngr_thread);
+        pthread_cancel(ui_mngr_thread);
+    }
+    
+    pthread_join(recv_mngr_thread, NULL);
+    pthread_join(ui_mngr_thread, NULL);
+
+    event_disconnect_client();
+    
+    close(sd);
+    msgqueue_free(msgqueue);
+    player_free(player);
+    pthread_mutex_destroy(&msgqueue_mutex);
+    pthread_cond_destroy(&queue_mngr_cond);
+    pthread_attr_destroy(&common_attr);
+    pthread_exit(NULL);
+}
 
 void send_event(struct msg *m)
 {
     uint8_t buf[sizeof(struct msg)];
     
-    m->header.player = player;
-    m->header.seq = seq;
+    m->header.id = player->id;
+    m->header.seq = player->seq;
 
     msg_pack(m, buf);
     
@@ -104,10 +116,25 @@ void event_disconnect_client(void)
     send_event(&msg);
 }
 
+void event_connect_ask(void)
+{
+    struct msg msg;
+
+    msg.type = MSGTYPE_CONNECT_ASK;
+    /* TODO: get nick from config or args. */
+    strncpy((char *) msg.event.connect_ask.nick, "somenick", NICK_MAX_LEN);
+
+    send_event(&msg);
+}
+
 /* Init ui_backend. */
 void *ui_mngr_func(void *arg)
 {
-    ui_init();
+    if(ui_init() == UI_ERROR) {
+        fprintf(stderr, "UI couldn't init.\n");
+    }
+    
+    quit(1);
 }
 
 void *recv_mngr_func(void *arg)
@@ -128,6 +155,7 @@ void *recv_mngr_func(void *arg)
         msgbatch.offset = (buf[0] * sizeof(struct msg));
         memcpy(msgbatch.chunks, buf, msgbatch.offset + 1);
 
+        pthread_mutex_lock(&msgqueue_mutex);
         while((chunk = msg_batch_pop(&msgbatch)) != NULL) {
             struct msg m;
             
@@ -136,25 +164,26 @@ void *recv_mngr_func(void *arg)
                 fprintf(stderr, "client: msgqueue_push: couldn't push data into queue.\n");
             }
         }
+        pthread_mutex_unlock(&msgqueue_mutex);
     }
 
 }
 
-void quit(int signum)
-{    
-    if(signum > 0) {
-        pthread_cancel(recv_mngr_thread);
-        pthread_cancel(ui_mngr_thread);
-    }
+void *queue_mngr_func(void *arg)
+{
+    struct msg *m;
     
-    pthread_join(recv_mngr_thread, NULL);
-    pthread_join(ui_mngr_thread, NULL);
+    sleep(1);
 
-    event_disconnect_client();
-    
-    close(sd);
-    pthread_attr_destroy(&common_attr);
-    pthread_exit(NULL);
+    while(1) {
+        pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
+        
+        while((m = msgqueue_pop(msgqueue)) != NULL) {
+            /* TODO: just fucking do it!. */
+        }
+
+        pthread_mutex_unlock(&msgqueue_mutex);
+    }
 }
 
 int main(int argc, char **argv)
@@ -167,6 +196,7 @@ int main(int argc, char **argv)
     signal(SIGQUIT, quit);
 
     msgqueue = msgqueue_init();
+    player = player_init();
     
     ui_mngr_ticks = ticks_start();
     
@@ -181,12 +211,17 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
+    pthread_mutex_init(&msgqueue_mutex, NULL);
+    pthread_cond_init(&queue_mngr_cond, NULL);
+    
     pthread_attr_init(&common_attr);
     pthread_attr_setdetachstate(&common_attr, PTHREAD_CREATE_JOINABLE);
 
     pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
     pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
 
+    event_connect_ask();
+    
     quit(0);
     
     return 0;

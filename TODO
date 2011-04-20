@@ -3,10 +3,30 @@
 
 * General concept
   Simple text-based(or no?) multiplayer shooter.
-  Client-server mechanism based on binary protocol.
+  Client-server mechanism based on a binary protocol.
 
 ** todo for all
 *** TODO Try to figure out what should be a battle mechanism.
+*** TODO Makefile: passing parameters for each part(server, client)
+    For a while should be used "make CFLAGS=-D[_SERVER_|_CLIENT_] [server|client]".
+
+    MR 20110415T06:14:34Z 003 <[AvataR]> 
+    build/server/%.o : src/%.c
+        $(CXX) $(CFLAGS) -DSERVER $@ $<
+    build/client/%.o : src/%.c
+        $(CXX) $(CFLAGS) -DCLIENT $@ $<                 
+    
+    MR 20110415T06:14:55Z 000 <пкщгяут[slacktop]> [AvataR] не подходит
+    MR 20110415T06:14:59Z 000 <[AvataR]> схуяле?
+    MR 20110415T06:15:01Z 000 <пкщгяут[slacktop]> у меня файл cdata.c общий
+    MR 20110415T06:15:10Z 000 <[AvataR]> ну и что?
+    MR 20110415T06:15:12Z 000 <пкщгяут[slacktop]> гм
+    MR 20110415T06:15:22Z 000 <пкщгяут[slacktop]> т.е ты предлагаешь создавать два разных обьектника?
+    MR 20110415T06:15:37Z 000 <[AvataR]> ну ты же создаешь два разных объектника? ))
+    MR 20110415T06:15:39Z 000 <пкщгяут[slacktop]> алсо, что значят $@ $< ?
+    MR 20110415T06:15:45Z 000 <пкщгяут[slacktop]> нет
+    MR 20110415T06:15:47Z 000 <[AvataR]> $@ -- цель
+    MR 20110415T06:15:53Z 000 <[AvataR]> $< - первый деп
   
 * Closer details
 ** Server
@@ -51,7 +71,7 @@
      For example a client wants to disconnect from the server, it sends
      message with its id and server like the fucking stupid moron disconnects
      other client, because the first client just changed value of id field
-     in the message. Oops!
+     in the message's header. Oops!
 **** TODO Think about synchronization between the server and a clients more detail.
      see item about sync_mngr_func() too.
 
@@ -68,8 +88,10 @@
    That's all ;^).
 
 
-       client
+       client in mostly works like a server.
      ,--------
+     |
+     +- msgqueue_mngr_thread: works like in a server part.
      |
      +- ui_mngr_thread: just init ui.
      |
@@ -77,13 +99,13 @@
      |                    Also it must watch on each message type from batch and if
      |                    necessary handles some of them and than sends result to the server.
      |
-     +- send_mngr_thread: reads last event and sends message to server.
+     +- send_mngr_thread: reads last event and sends message to server. TODO: cancel.
      |
-     +- ui_read_thread: reads user's actions and updates last event variable.
+     +- ui_read_thread: reads user's actions and updates last event variable. TODO: cancel.
      |                  Must be implemented for each ui backend.
      |
      `- ui_update_thread: reads msgqueue and updates UI accordingly.
-                          Must be implemented for each ui backend.
+                          Must be implemented for each ui backend. TODO: cancel.
             
 
 *** UI
@@ -111,7 +133,7 @@
 
     Status line should look like that:
 
-    Nick@server:port   HP: 100/100   Weapon: Granade   Kills/Death: 5/8
+    Nick   W: Rocket(90/40)   HP: 100/100
 
 
     When Tab is pressed, statistics about players should be requested from the
@@ -131,3 +153,4 @@
      For example: to shoot, to run, to die, to take up an objects and so on.
      Write general functions and data structures for 
      the binary protocol(cdata.c, cdata.h).
+

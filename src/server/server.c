@@ -9,24 +9,9 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
-#include "cdata.h"
+#include "../cdata.h"
 
 #define MAX_PLAYERS 16
-
-enum players_enum_t {
-    PLAYERS_ERROR = 0,
-    PLAYERS_OK
-};
-
-struct player {
-    struct sockaddr_in *addr;
-    struct msg_batch msgbatch;
-    uint8_t player; /* slot's number. */
-    uint8_t *nick;
-    uint32_t seq;
-    uint16_t pos_x;
-    uint16_t pos_y;
-};
 
 struct players_slot {
     struct players_slot *next;
@@ -66,9 +51,7 @@ void players_free(struct players_slots *slots)
         cslot = nslot;
         nslot = nslot->next;
 
-        free(cslot->p->addr);
-        free(cslot->p->nick);
-        free(cslot->p);
+        player_free(cslot->p);
         free(cslot);
     }
     
@@ -94,10 +77,7 @@ struct player *players_occupy(struct players_slots *slots, struct player *p)
         oslot = new;
         oslot->prev = pslot;
         oslot->next = NULL;
-        oslot->p = malloc(sizeof(struct player));
-        memset(oslot->p, 0, sizeof(struct player));
-        oslot->p->addr = malloc(sizeof(struct sockaddr_in));
-        oslot->p->nick = malloc(sizeof(uint8_t) * NICK_MAX_LEN);
+        oslot->p = player_init();
         memcpy(oslot->p->addr, p->addr, sizeof(struct sockaddr_in));
         strncpy((char *) oslot->p->nick, (char *) p->nick, NICK_MAX_LEN);
 
@@ -110,7 +90,7 @@ struct player *players_occupy(struct players_slots *slots, struct player *p)
         for(i = 0; i < MAX_PLAYERS; i++) {
             if(slots->slots[i] == NULL) {
                 slots->slots[i] = oslot;
-                oslot->p->player = (uint8_t) i;
+                oslot->p->id = (uint8_t) i;
                 
                 return oslot->p;
             }
@@ -120,13 +100,13 @@ struct player *players_occupy(struct players_slots *slots, struct player *p)
     return NULL;
 }
 
-enum players_enum_t players_release(struct players_slots *slots, uint8_t player)
+enum player_enum_t players_release(struct players_slots *slots, uint8_t id)
 {
-    if(slots->count > 0 && slots->slots[player] != NULL) {
+    if(slots->count > 0 && slots->slots[id] != NULL) {
         struct players_slot *cslot, *pslot, *nslot;
         slots->count--;
         
-        cslot = slots->slots[player];
+        cslot = slots->slots[id];
         nslot = cslot->next;
         pslot = cslot->prev;
         
@@ -141,12 +121,10 @@ enum players_enum_t players_release(struct players_slots *slots, uint8_t player)
         }
 
         /* Make slot free. */
-        free(cslot->p->addr);
-        free(cslot->p->nick);
-        free(cslot->p);
+        player_free(cslot->p);
         free(cslot);
         
-        slots->slots[player] = NULL;
+        slots->slots[id] = NULL;
 
         return PLAYERS_OK;
     }
@@ -227,46 +205,6 @@ pthread_attr_t common_attr;
 struct ticks *queue_mngr_ticks;
 int sd;
 
-/* This thread must do the only one
- * thing - recieves messages from many
- * clients and then pushs them to msgqueue.
- */
-void *recv_mngr_func(void *arg)
-{
-    struct sockaddr_in client_addr;
-    socklen_t client_addr_len = sizeof(client_addr);
-    struct msg_queue_node *qnode;
-        
-    qnode = malloc(sizeof(struct msg_queue_node));
-    qnode->data = malloc(sizeof(struct msg));
-    qnode->addr = malloc(sizeof(struct sockaddr_in));
-
-    queue_mngr_ticks = ticks_start();
-    
-    while("hope is not dead") {
-        uint8_t buf[sizeof(struct msg)];
-        
-        if(ticks_get_diff(queue_mngr_ticks) > 1000 / FPS) {
-            ticks_update(queue_mngr_ticks);
-            pthread_cond_signal(&queue_mngr_cond);
-        }
-        
-        if(recvfrom(sd, buf, sizeof(struct msg), 0,
-                    (struct sockaddr *) &client_addr, &client_addr_len) < 0) {
-            perror("server: recvfrom");
-            continue;
-        }
-        
-        msg_unpack(buf, qnode->data);
-        qnode->addr = &client_addr;
-        pthread_mutex_lock(&msgqueue_mutex);
-        if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
-            fprintf(stderr, "server: msgqueue_push: couldn't push data into queue.\n");
-        }
-        pthread_mutex_unlock(&msgqueue_mutex);
-    }
-}
-
 void event_disconnect_server(void)
 {
     struct players_slot *slot = players->root;
@@ -295,13 +233,13 @@ void event_disconnect_client(struct msg_queue_node *qnode)
     struct msg msg;
 
     msg.type = MSGTYPE_DISCONNECT_NOTIFY;
-    if(players->slots[qnode->data->header.player] != NULL) {
+    if(players->slots[qnode->data->header.id] != NULL) {
         strncpy((char *) msg.event.disconnect_notify.nick,
-                (char *) players->slots[qnode->data->header.player]->p->nick, NICK_MAX_LEN);
+                (char *) players->slots[qnode->data->header.id]->p->nick, NICK_MAX_LEN);
     }
 
-    if(players_release(players, qnode->data->header.player) == PLAYERS_ERROR) {
-        printf("Couldn't remove the player from slots: %u\n", qnode->data->header.player);
+    if(players_release(players, qnode->data->header.id) == PLAYERS_ERROR) {
+        printf("Couldn't remove the player from slots: %u\n", qnode->data->header.id);
         
         return;
     }
@@ -357,7 +295,7 @@ void event_connect_ask(struct msg_queue_node *qnode)
                     
         /* Set order number for the new player. */
         msg.header.seq = 0;
-        msg.event.connect_ok.player = newplayer->player;
+        msg.event.connect_ok.id = newplayer->id;
         msg.event.connect_ok.ok = 1;
 
         /* Push to the new player. */
@@ -373,6 +311,46 @@ void event_connect_ask(struct msg_queue_node *qnode)
             }
             slot = slot->next;
         }
+    }
+}
+
+/* This thread must do the only one
+ * thing - recieves messages from many
+ * clients and then pushs them to msgqueue.
+ */
+void *recv_mngr_func(void *arg)
+{
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len = sizeof(client_addr);
+    struct msg_queue_node *qnode;
+        
+    qnode = malloc(sizeof(struct msg_queue_node));
+    qnode->data = malloc(sizeof(struct msg));
+    qnode->addr = malloc(sizeof(struct sockaddr_in));
+
+    queue_mngr_ticks = ticks_start();
+    
+    while("hope is not dead") {
+        uint8_t buf[sizeof(struct msg)];
+        
+        if(ticks_get_diff(queue_mngr_ticks) > 1000 / FPS) {
+            ticks_update(queue_mngr_ticks);
+            pthread_cond_signal(&queue_mngr_cond);
+        }
+        
+        if(recvfrom(sd, buf, sizeof(struct msg), 0,
+                    (struct sockaddr *) &client_addr, &client_addr_len) < 0) {
+            perror("server: recvfrom");
+            continue;
+        }
+        
+        msg_unpack(buf, qnode->data);
+        qnode->addr = &client_addr;
+        pthread_mutex_lock(&msgqueue_mutex);
+        if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
+            fprintf(stderr, "server: msgqueue_push: couldn't push data into queue.\n");
+        }
+        pthread_mutex_unlock(&msgqueue_mutex);
     }
 }
     

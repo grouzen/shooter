@@ -9,6 +9,7 @@
 enum {
     //MSGTYPE_NONE = -1,
     MSGTYPE_WALK = 0,
+    MSGTYPE_PLAYER_POSITION,
     MSGTYPE_SHOOT,
     MSGTYPE_CONNECT_ASK,
     MSGTYPE_CONNECT_OK,
@@ -20,6 +21,9 @@ enum {
 
 struct msgtype_walk {
     uint8_t direction;
+};
+
+struct msgtype_player_position {
     uint16_t pos_x;
     uint16_t pos_y;
 };
@@ -36,7 +40,7 @@ struct msgtype_connect_ask {
 
 struct msgtype_connect_ok {
     uint8_t ok; // > 0 - ok.
-    uint8_t player;
+    uint8_t id;
 };
 
 struct msgtype_connect_notify {
@@ -61,7 +65,7 @@ struct msgtype_disconnect_notify {
  */
 struct msg_header {
     uint32_t seq;
-    uint8_t player;
+    uint8_t id;
 };
 
 struct msg {
@@ -69,6 +73,7 @@ struct msg {
     uint8_t type;
     union {
         struct msgtype_walk walk;
+        struct msgtype_player_position player_position;
         struct msgtype_shoot shoot;
         struct msgtype_connect_ask connect_ask;
         struct msgtype_connect_ok connect_ok;
@@ -109,8 +114,59 @@ struct msg_batch {
 
 #define MSGBATCH_SIZE(b) ((b)->chunks[0])
 
-#define PLAYER_VIEWPORT_WIDTH 30
-#define PLAYER_VIEWPORT_HEIGHT 30
+#define WEAPON_NAME_MAX_LEN 8
+
+struct weapon {
+    uint8_t name[WEAPON_NAME_MAX_LEN];
+    uint8_t damage_max;
+    uint8_t damage_min;
+    uint8_t bullet_speed;
+    uint8_t bullet_distance;
+    uint8_t bullet_count;
+};
+
+#define WEAPON_SLOTS_MAX 9
+
+struct weapon_slots {
+    /* Bit array where 1 means that weapon exists. */
+    uint8_t slots[WEAPON_SLOTS_MAX];
+    /* Number of bullets for each weapon. */
+    uint8_t bullets[WEAPON_SLOTS_MAX];
+    /* Selected weapon. */
+    uint8_t current;
+};
+
+extern struct weapon weapons[];
+
+#define PLAYER_VIEWPORT_WIDTH 31
+#define PLAYER_VIEWPORT_HEIGHT 31
+
+enum player_enum_t {
+    PLAYERS_ERROR = 0,
+    PLAYERS_OK
+};
+
+enum {
+    DIRECTION_LEFT,
+    DIRECTION_RIGHT,
+    DIRECTION_UP,
+    DIRECTION_DOWN
+};
+
+struct player {
+#ifdef _SERVER_
+    struct sockaddr_in *addr;
+    struct msg_batch msgbatch;
+#endif
+    uint8_t id; /* slot's number. */
+    uint8_t *nick;
+    uint32_t seq;
+    uint8_t direction;
+    uint16_t pos_x;
+    uint16_t pos_y;
+    uint8_t hp;
+    struct weapon_slots weapons;
+};
 
 #define FPS 10
 
@@ -119,9 +175,23 @@ struct ticks {
     uint64_t count;
 };
 
+/* For now I've different implementation
+   of the msgqueue in client and server.
+*/
 enum msg_queue_enum_t {
     MSGQUEUE_ERROR = 0,
     MSGQUEUE_OK
+};
+
+enum {
+    MAP_EMPTY = 0,
+    MAP_WALL
+};
+
+struct map {
+    uint8_t *objs;
+    uint16_t width;
+    uint16_t height;
 };
 
 void msg_pack(struct msg*, uint8_t*);
@@ -133,5 +203,9 @@ struct ticks *ticks_start(void);
 void ticks_update(struct ticks*);
 void ticks_finish(struct ticks*);
 uint64_t ticks_get_diff(struct ticks*);
+struct player *player_init(void);
+void player_free(struct player*);
+struct map *map_load(void);
+void map_unload(struct map*);
 
 #endif
