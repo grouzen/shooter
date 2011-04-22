@@ -57,6 +57,9 @@
    Player see only its viewport's zone around it, so it should not know about
    events which happen outside of its visibility range, or for example
    connection event which concerns only one player who sends it.
+   
+   Only client fills `msg.header.id` and `msg.header.seq` fields,
+   server verify it only and if necessary sends diff.
 
 *** todo for the server side.
 **** TODO Write function sync_mngr_func()

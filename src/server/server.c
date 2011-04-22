@@ -11,6 +11,15 @@
 
 #include "../cdata.h"
 
+struct msg_queue *msgqueue = NULL;
+struct players_slots *players = NULL;
+pthread_mutex_t msgqueue_mutex;
+pthread_cond_t queue_mngr_cond;
+pthread_t recv_mngr_thread, queue_mngr_thread;
+pthread_attr_t common_attr;
+struct ticks *queue_mngr_ticks;
+int sd;
+
 #define MAX_PLAYERS 16
 
 struct players_slot {
@@ -196,32 +205,46 @@ struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
     return NULL;
 }
 
-struct msg_queue *msgqueue = NULL;
-struct players_slots *players = NULL;
-pthread_mutex_t msgqueue_mutex;
-pthread_cond_t queue_mngr_cond;
-pthread_t recv_mngr_thread, queue_mngr_thread;
-pthread_attr_t common_attr;
-struct ticks *queue_mngr_ticks;
-int sd;
+void send_events(void)
+{
+    struct players_slot *slot = players->root;
+    
+    /* Send diff to each player. */
+    slot = players->root;
+    while(slot != NULL) {
+        struct player *p = slot->p;
+        
+        if(MSGBATCH_SIZE(&(p->msgbatch)) > 0) {
+            sendto(sd, p->msgbatch.chunks, p->msgbatch.offset + 1,
+                   0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
+        }
+        
+        slot = slot->next;
+    }
+
+    slot = players->root;
+    /* Refresh msgbatch for each player. */
+    while(slot != NULL) {
+        memset(&(slot->p->msgbatch), 0, sizeof(struct msg_batch));
+        slot = slot->next;
+    }
+        
+}
 
 void event_disconnect_server(void)
 {
     struct players_slot *slot = players->root;
-    struct msg_batch msgbatch;
     struct msg msg;
 
     msg.type = MSGTYPE_DISCONNECT_SERVER;
     msg.event.disconnect_server.stub = 1;
     
-    memset(&msgbatch, 0, sizeof(struct msg_batch));
-    msg_batch_push(&msgbatch, &msg);
     while(slot != NULL) {
         struct player *p = slot->p;
-        
-        sendto(sd, msgbatch.chunks, msgbatch.offset + 1,
-               0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
 
+        p->seq++;
+        msg_batch_push(&(p->msgbatch), &msg);
+        
         slot = slot->next;
     }
 }
@@ -229,36 +252,33 @@ void event_disconnect_server(void)
 void event_disconnect_client(struct msg_queue_node *qnode)
 {
     struct players_slot *slot;
-    struct msg_batch msgbatch;
     struct msg msg;
 
     msg.type = MSGTYPE_DISCONNECT_NOTIFY;
+
+    /* Copy nick of the disconnected player. */
     if(players->slots[qnode->data->header.id] != NULL) {
         strncpy((char *) msg.event.disconnect_notify.nick,
                 (char *) players->slots[qnode->data->header.id]->p->nick, NICK_MAX_LEN);
     }
 
     if(players_release(players, qnode->data->header.id) == PLAYERS_ERROR) {
-        printf("Couldn't remove the player from slots: %u\n", qnode->data->header.id);
-        
+        printf("Couldn't remove the player from slots: %u\n", qnode->data->header.id);        
         return;
     }
 
     printf("Player has been disconnected: %s\n", msg.event.disconnect_notify.nick);
     
-    memset(&msgbatch, 0, sizeof(struct msg_batch));
-    msg_batch_push(&msgbatch, &msg);
 
     slot = players->root;
     while(slot != NULL) {
         struct player *p = slot->p;
-        
-        sendto(sd, msgbatch.chunks, msgbatch.offset + 1,
-               0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
 
+        p->seq++;
+        msg_batch_push(&(p->msgbatch), &msg);
+        
         slot = slot->next;
     }
-
 }
 
 void event_connect_ask(struct msg_queue_node *qnode)
@@ -290,25 +310,32 @@ void event_connect_ask(struct msg_queue_node *qnode)
         
         printf("Player has been connected with nick: %s, total players: %u\n",
                newplayer->nick, players->count);
-
-        /* TODO: set seq. Set pos_x and pos_y. */
-                    
-        /* Set order number for the new player. */
-        msg.header.seq = 0;
+        
+        /* Push to the new player. */
+        newplayer->seq++;
         msg.event.connect_ok.id = newplayer->id;
         msg.event.connect_ok.ok = 1;
-
-        /* Push to the new player. */
         msg_batch_push(&(newplayer->msgbatch), &msg);
+
+        newplayer->seq++;
+        msg.type = MSGTYPE_PLAYER_POSITION;
+        /* TODO: generate with some magic code. */
+        msg.event.player_position.pos_x = 10;
+        msg.event.player_position.pos_y = 10;
+        msg_batch_push(&(newplayer->msgbatch), &msg);
+        
         /* Notify rest players about new player's connection. */
         memset(&msg, 0, sizeof(struct msg));
         msg.type = MSGTYPE_CONNECT_NOTIFY;
         strncpy((char *) msg.event.connect_notify.nick, (char *) newplayer->nick, NICK_MAX_LEN);
         while(slot != NULL) {
-            if(slot->p != newplayer) {
-                msg.header.seq = ++(slot->p->seq);
-                msg_batch_push(&(slot->p->msgbatch), &msg);
+            struct player *p = slot->p;
+            
+            if(p != newplayer) {
+                p->seq++;
+                msg_batch_push(&(p->msgbatch), &msg);
             }
+            
             slot = slot->next;
         }
     }
@@ -360,17 +387,9 @@ void *queue_mngr_func(void *arg)
 
     sleep(1);
     
-    while("teh internetz exists") {
-        struct players_slot *slot = players->root;
-        
+    while("teh internetz exists") {        
         pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
 
-        /* Refresh msgbatch for each player. */
-        while(slot != NULL) {
-            memset(&(slot->p->msgbatch), 0, sizeof(struct msg_batch));
-            slot = slot->next;
-        }
-        
         /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
             /* TODO: check seq. */
@@ -388,18 +407,7 @@ void *queue_mngr_func(void *arg)
             }
         }
 
-        /* Send diff to each player. */
-        slot = players->root;
-        while(slot != NULL) {
-            struct player *p = slot->p;
-            
-            if(MSGBATCH_SIZE(&(p->msgbatch)) > 0) {
-                sendto(sd, p->msgbatch.chunks, p->msgbatch.offset + 1,
-                       0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
-            }
-            
-            slot = slot->next;
-        }
+        send_events();
         
         pthread_mutex_unlock(&msgqueue_mutex);
     }
@@ -416,6 +424,7 @@ void quit(int signum)
     pthread_join(queue_mngr_thread, NULL);
     
     event_disconnect_server();
+    send_events();
     
     close(sd);
     msgqueue_free(msgqueue);

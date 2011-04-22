@@ -306,6 +306,7 @@ struct player *player_init(void)
 #ifdef _SERVER_
     p->addr = malloc(sizeof(struct sockaddr_in));
 #endif
+    p->hp = 100;
     
     return p;
 }

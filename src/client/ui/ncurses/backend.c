@@ -10,6 +10,29 @@
 WINDOW *window = NULL;
 struct ui_event *event;
 struct screen screen;
+struct notify_line notify_line;
+
+void ui_notify_line_set(uint8_t *l)
+{
+    int i;
+
+    for(i = 0; i < NOTIFY_LINE_HISTORY_MAX - 1; i++) {
+        strncpy((char *) notify_line.history[i + 1], (char *) notify_line.history[i], NOTIFY_LINE_MAX_LEN);
+    }
+
+    strncpy((char *) notify_line.history[0], (char *) l, NOTIFY_LINE_MAX_LEN);
+}
+
+static void ui_notify_line_update(void)
+{
+    int i;
+
+    for(i = 2; i < screen.width; i++) {
+        mvwaddch(window, screen.height, i, ' ');
+    }
+
+    mvwaddstr(window, screen.height, 2, (char *) notify_line.history[0]);
+}
 
 #if 0
 /* Updates statusline shown at the top line of viewport */
@@ -77,9 +100,10 @@ static void ui_update_status_line(void)
    - for diagonal movement;
    - etc.
 */
+/* TODO: rewrite without heap usage. */
 struct ui_event {
     int keys[EVENT_MAX_LEN];
-    size_t last;
+    int last;
 };
 
 static struct ui_event *ui_event_init(void)
@@ -139,7 +163,9 @@ enum ui_event_enum_t ui_get_event(void)
 }
 
 /* Applies all the changes made to screen by other functions */
-void ui_refresh(void) {
+void ui_refresh(void)
+{
+    ui_notify_line_update();
     wrefresh(window);
 }
         

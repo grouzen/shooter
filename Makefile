@@ -63,7 +63,7 @@ $(client_srcdir)/ui/sdl/%.o: $(client_srcdir)/ui/sdl/%.c
 #tests: $(tests_target)
 
 #test_client: $(test_generic_objs) $(test_client_objs)
-	gcc -DUI_BACKEND_NCURSES -o $(test_client_target) $(test_generic_objs) $(test_client_objs) $(LDFLAGS) -lncurses $(CFLAGS)
+#	gcc -DUI_BACKEND_NCURSES -o $(test_client_target) $(test_generic_objs) $(test_client_objs) $(LDFLAGS) -lncurses $(CFLAGS)
 
 #$(test_generic_objs): $(test_generic_headers) $(test_client_headers)
 

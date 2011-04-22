@@ -14,11 +14,11 @@
 #include "ui/backend.h"
 #include "client.h"
 
-pthread_t ui_mngr_thread, recv_mngr_thread;
+pthread_t ui_mngr_thread, recv_mngr_thread, queue_mngr_thread;
 pthread_attr_t common_attr;
 pthread_mutex_t msgqueue_mutex;
 pthread_cond_t queue_mngr_cond;
-struct ticks *ui_mngr_ticks;
+struct ticks *queue_mngr_ticks;
 struct sockaddr_in server_addr;
 struct msg_queue *msgqueue = NULL;
 struct player *player = NULL;
@@ -72,27 +72,6 @@ struct msg *msgqueue_pop(struct msg_queue *q)
     return NULL;
 }
 
-void quit(int signum)
-{    
-    if(signum > 0) {
-        pthread_cancel(recv_mngr_thread);
-        pthread_cancel(ui_mngr_thread);
-    }
-    
-    pthread_join(recv_mngr_thread, NULL);
-    pthread_join(ui_mngr_thread, NULL);
-
-    event_disconnect_client();
-    
-    close(sd);
-    msgqueue_free(msgqueue);
-    player_free(player);
-    pthread_mutex_destroy(&msgqueue_mutex);
-    pthread_cond_destroy(&queue_mngr_cond);
-    pthread_attr_destroy(&common_attr);
-    pthread_exit(NULL);
-}
-
 void send_event(struct msg *m)
 {
     uint8_t buf[sizeof(struct msg)];
@@ -127,27 +106,59 @@ void event_connect_ask(void)
     send_event(&msg);
 }
 
+void event_connect_ok(struct msg *m)
+{
+    char nl[NOTIFY_LINE_MAX_LEN];
+    
+    if(m->event.connect_ok.ok) {
+        player->id = m->event.connect_ok.id;
+        snprintf(nl, NOTIFY_LINE_MAX_LEN, "Connected with id: %u.", player->id);
+    } else {
+        snprintf(nl, NOTIFY_LINE_MAX_LEN, "Connection failed.");
+    }
+    
+    ui_notify_line_set((uint8_t *) nl);
+}
+
+void event_connect_notify(struct msg *m)
+{
+    char nl[NOTIFY_LINE_MAX_LEN];
+
+    snprintf(nl, NOTIFY_LINE_MAX_LEN, "New user has been connected with nick: %s.",
+             m->event.connect_notify.nick);
+    ui_notify_line_set((uint8_t *) nl);
+}
+
 /* Init ui_backend. */
 void *ui_mngr_func(void *arg)
 {
+    
     if(ui_init() == UI_ERROR) {
         fprintf(stderr, "UI couldn't init.\n");
     }
     
     quit(1);
+    
 }
 
 void *recv_mngr_func(void *arg)
 {
-    ssize_t recvbytes;
-    
+    queue_mngr_ticks = ticks_start();
+
+    /* TODO: remove this ugly hack. */
+    sleep(1);
+
     while("zombies walk") {
         uint8_t buf[sizeof(struct msg_batch)];
         struct msg_batch msgbatch;
         uint8_t *chunk;
+
+        if(ticks_get_diff(queue_mngr_ticks) > 1000 / FPS) {
+            ticks_update(queue_mngr_ticks);
+            pthread_cond_signal(&queue_mngr_cond);
+        }
         
-        if((recvbytes = recvfrom(sd, buf, sizeof(struct msg_batch),
-                                 0, NULL, NULL)) < 0) {
+        if(recvfrom(sd, buf, sizeof(struct msg_batch), 0, NULL, NULL) < 0) {
             perror("client: recvfrom");
             continue;
         }
@@ -162,6 +173,8 @@ void *recv_mngr_func(void *arg)
             msg_unpack(chunk, &m);
             if(msgqueue_push(msgqueue, &m) == MSGQUEUE_ERROR) {
                 fprintf(stderr, "client: msgqueue_push: couldn't push data into queue.\n");
+            } else {
+                player->seq++;
             }
         }
         pthread_mutex_unlock(&msgqueue_mutex);
@@ -173,17 +186,63 @@ void *queue_mngr_func(void *arg)
 {
     struct msg *m;
     
-    sleep(1);
-
     while(1) {
         pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
         
         while((m = msgqueue_pop(msgqueue)) != NULL) {
             /* TODO: just fucking do it!. */
+            /* TODO: check player->id, if it's 0 than warn. */
+            switch(m->type) {
+            case MSGTYPE_CONNECT_OK:
+                event_connect_ok(m);
+                break;
+            case MSGTYPE_CONNECT_NOTIFY:
+                event_connect_notify(m);
+                break;
+                /*
+            case MSGTYPE_DISCONNECT_NOTIFY:
+                event_disconnect_notify(m);
+                break;
+            case MSGTYPE_DISCONNECT_SERVER:
+                event_disconnect_server(m);
+                break;
+            case MSGTYPE_PLAYER_POSITION:
+                event_player_position(m);
+                break;
+                */
+            default:
+                //printf("Unknown event\n");
+                break;
+            }
         }
 
         pthread_mutex_unlock(&msgqueue_mutex);
+        
+        ui_refresh();
     }
+}
+
+void quit(int signum)
+{    
+    if(signum > 0) {
+        pthread_cancel(recv_mngr_thread);
+        pthread_cancel(ui_mngr_thread);
+        pthread_cancel(queue_mngr_thread);
+    }
+    
+    pthread_join(recv_mngr_thread, NULL);
+    pthread_join(ui_mngr_thread, NULL);
+    pthread_join(queue_mngr_thread, NULL);
+
+    event_disconnect_client();
+    
+    close(sd);
+    msgqueue_free(msgqueue);
+    player_free(player);
+    pthread_mutex_destroy(&msgqueue_mutex);
+    pthread_cond_destroy(&queue_mngr_cond);
+    pthread_attr_destroy(&common_attr);
+    pthread_exit(NULL);
 }
 
 int main(int argc, char **argv)
@@ -197,8 +256,6 @@ int main(int argc, char **argv)
 
     msgqueue = msgqueue_init();
     player = player_init();
-    
-    ui_mngr_ticks = ticks_start();
     
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -219,6 +276,7 @@ int main(int argc, char **argv)
 
     pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
     pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
+    pthread_create(&queue_mngr_thread, &common_attr, queue_mngr_func, NULL);
 
     event_connect_ask();
     
