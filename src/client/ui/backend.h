@@ -34,6 +34,7 @@ enum ui_enum_t {
 void ui_refresh(void);
 enum ui_event_enum_t ui_get_event(void);
 enum ui_enum_t ui_init(void);
+void ui_free(void);
 void ui_notify_line_set(uint8_t*);
 
 /* Export some global variables from client.c file. */

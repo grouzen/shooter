@@ -124,9 +124,37 @@ void event_connect_notify(struct msg *m)
 {
     char nl[NOTIFY_LINE_MAX_LEN];
 
-    snprintf(nl, NOTIFY_LINE_MAX_LEN, "New user has been connected with nick: %s.",
+    snprintf(nl, NOTIFY_LINE_MAX_LEN, "New player has been connected with nick: %s.",
              m->event.connect_notify.nick);
     ui_notify_line_set((uint8_t *) nl);
+}
+
+void event_disconnect_notify(struct msg *m)
+{
+    char nl[NOTIFY_LINE_MAX_LEN];
+
+    snprintf(nl, NOTIFY_LINE_MAX_LEN, "Player has been disconnected: %s.",
+             m->event.disconnect_notify.nick);
+    ui_notify_line_set((uint8_t *) nl);
+}
+
+void event_disconnect_server(struct msg *m)
+{
+    char nl[NOTIFY_LINE_MAX_LEN];
+    
+    snprintf(nl, NOTIFY_LINE_MAX_LEN, "Server has been halted. Disconnecting...");
+    ui_notify_line_set((uint8_t *) nl);
+    ui_refresh();
+    
+    sleep(3);
+    
+    quit(1);
+}
+
+void event_player_position(struct msg *m)
+{
+    player->pos_x = m->event.player_position.pos_x;
+    player->pos_y = m->event.player_position.pos_y;
 }
 
 /* Init ui_backend. */
@@ -199,7 +227,6 @@ void *queue_mngr_func(void *arg)
             case MSGTYPE_CONNECT_NOTIFY:
                 event_connect_notify(m);
                 break;
-                /*
             case MSGTYPE_DISCONNECT_NOTIFY:
                 event_disconnect_notify(m);
                 break;
@@ -209,9 +236,7 @@ void *queue_mngr_func(void *arg)
             case MSGTYPE_PLAYER_POSITION:
                 event_player_position(m);
                 break;
-                */
             default:
-                //printf("Unknown event\n");
                 break;
             }
         }
@@ -234,6 +259,7 @@ void quit(int signum)
     pthread_join(ui_mngr_thread, NULL);
     pthread_join(queue_mngr_thread, NULL);
 
+    ui_free();
     event_disconnect_client();
     
     close(sd);

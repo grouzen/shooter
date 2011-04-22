@@ -8,7 +8,7 @@
 #include "../backend.h"
 
 WINDOW *window = NULL;
-struct ui_event *event;
+struct ui_event event;
 struct screen screen;
 struct notify_line notify_line;
 
@@ -100,37 +100,24 @@ static void ui_update_status_line(void)
    - for diagonal movement;
    - etc.
 */
-/* TODO: rewrite without heap usage. */
 struct ui_event {
     int keys[EVENT_MAX_LEN];
     int last;
 };
 
-static struct ui_event *ui_event_init(void)
-{
-    struct ui_event *e = malloc(sizeof(struct ui_event));
-    e->last = -1;
-    
-    return e;
-}
-
-static void ui_event_free(struct ui_event *e)
-{
-    free(e);
-}
-
 static void ui_event_push(struct ui_event *e, int key)
 {
-    if(e->last < EVENT_MAX_LEN - 1) {
+    if(e->last < EVENT_MAX_LEN) {
         e->last++;
-        e->keys[e->last] = key;
+        e->keys[e->last - 1] = key;
     }
 }
 
 static int ui_event_pop(struct ui_event *e)
 {
-    if(e->last >= 0) {
-        return e->keys[e->last--];
+    if(e->last > 0) {
+        e->last--;
+        return e->keys[e->last];
     }
 
     return 0;
@@ -140,8 +127,8 @@ enum ui_event_enum_t ui_get_event(void)
 {
     /* For a while we get only the last pressed key from struct event. */
     
-    int lkey = ui_event_pop(event);
-    while(ui_event_pop(event) != 0);
+    int lkey = ui_event_pop(&event);
+    while(ui_event_pop(&event) != 0);
 
     switch(lkey) {
     case KEY_LEFT:
@@ -181,7 +168,7 @@ enum ui_enum_t ui_init(void)
     keypad(stdscr, TRUE);
 
     if(has_colors() == FALSE) {
-        endwin();
+        ui_free();
         fprintf(stderr, "Colors is not supported by this terminal.\n");
         
         return UI_ERROR;
@@ -193,7 +180,7 @@ enum ui_enum_t ui_init(void)
     refresh();
 
     if(LINES < 25 || COLS < 80) {
-        endwin();
+        ui_free();
         fprintf(stderr, "Terminal should be at least 80x25 in size!\n");
         
         return UI_ERROR;
@@ -213,14 +200,15 @@ enum ui_enum_t ui_init(void)
     
     wrefresh(window);
     refresh();
-    event = ui_event_init();
     
     while((key = getch()) != 'q') {
-        ui_event_push(event, key);
+        ui_event_push(&event, key);
     }
     
-    ui_event_free(event);
-    endwin();
-    
     return UI_OK;
+}
+
+void ui_free(void)
+{
+    endwin();
 }
