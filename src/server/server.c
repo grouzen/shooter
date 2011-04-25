@@ -18,6 +18,7 @@ pthread_cond_t queue_mngr_cond;
 pthread_t recv_mngr_thread, queue_mngr_thread;
 pthread_attr_t common_attr;
 struct ticks *queue_mngr_ticks;
+struct map *map;
 int sd;
 
 #define MAX_PLAYERS 16
@@ -315,13 +316,16 @@ void event_connect_ask(struct msg_queue_node *qnode)
         newplayer->seq++;
         msg.event.connect_ok.id = newplayer->id;
         msg.event.connect_ok.ok = 1;
+        strncpy((char *) msg.event.connect_ok.mapname, (char *) map->name, MAP_NAME_MAX_LEN);
         msg_batch_push(&(newplayer->msgbatch), &msg);
 
         newplayer->seq++;
         msg.type = MSGTYPE_PLAYER_POSITION;
         /* TODO: generate with some magic code. */
-        msg.event.player_position.pos_x = 10;
-        msg.event.player_position.pos_y = 10;
+        newplayer->pos_x = 3;
+        newplayer->pos_y = 3;
+        msg.event.player_position.pos_x = newplayer->pos_x;
+        msg.event.player_position.pos_y = newplayer->pos_y;
         msg_batch_push(&(newplayer->msgbatch), &msg);
         
         /* Notify rest players about new player's connection. */
@@ -339,6 +343,42 @@ void event_connect_ask(struct msg_queue_node *qnode)
             slot = slot->next;
         }
     }
+}
+
+void event_walk(struct msg_queue_node *qnode)
+{
+    struct msg msg;
+    struct player *p = players->slots[qnode->data->header.id]->p;
+    
+    p->direction = qnode->data->event.walk.direction;
+    /* TODO: check collisions and if all seems good
+       change player's position and send event_player_position().
+    */
+    
+    switch(p->direction) {
+    case DIRECTION_LEFT:
+        p->pos_x -= 1;
+        break;
+    case DIRECTION_RIGHT:
+        p->pos_x += 1;
+        break;
+    case DIRECTION_UP:
+        p->pos_y -= 1;
+        break;
+    case DIRECTION_DOWN:
+        p->pos_y += 1;
+        break;
+    default:
+        break;
+    }
+
+    printf("p->pos_x: %d, p->pos_y = %d\n", p->pos_x, p->pos_y);
+    
+    p->seq++;
+    msg.type = MSGTYPE_PLAYER_POSITION;
+    msg.event.player_position.pos_x = p->pos_x;
+    msg.event.player_position.pos_y = p->pos_y;
+    msg_batch_push(&(p->msgbatch), &msg);
 }
 
 /* This thread must do the only one
@@ -401,6 +441,9 @@ void *queue_mngr_func(void *arg)
             case MSGTYPE_DISCONNECT_CLIENT:
                 event_disconnect_client(qnode);
                 break;
+            case MSGTYPE_WALK:
+                event_walk(qnode);
+                break;
             default:
                 printf("Unknown event\n");
                 break;
@@ -427,6 +470,7 @@ void quit(int signum)
     send_events();
     
     close(sd);
+    map_unload(map);
     msgqueue_free(msgqueue);
     players_free(players);
     pthread_attr_destroy(&common_attr);
@@ -447,7 +491,13 @@ int main(int argc, char **argv)
     signal(SIGINT, quit);
     signal(SIGHUP, quit);
     signal(SIGQUIT, quit);
-     
+
+    /* TODO: from config or args. */
+    map = map_load((uint8_t *) "maze.map");
+    if(map == NULL) {
+        printf("Map couldn't be loaded: %s.\n", "maze.map");
+        exit(EXIT_FAILURE);
+    }
     msgqueue = msgqueue_init();
     players = players_init();
 

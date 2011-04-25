@@ -3,6 +3,21 @@
 
 #include <stdint.h>
 
+#define MAP_EMPTY ' '
+#define MAP_WALL '#'
+
+#define MAP_NAME_MAX_LEN 16
+
+struct map {
+    /* On client part if name doesn't set,
+       means that map is not loaded yet.
+    */
+    uint8_t name[MAP_NAME_MAX_LEN];
+    uint8_t **objs;
+    uint16_t width;
+    uint16_t height;
+};
+
 /*
  * Structures which describes message body
  */
@@ -41,6 +56,7 @@ struct msgtype_connect_ask {
 struct msgtype_connect_ok {
     uint8_t ok; // > 0 - ok.
     uint8_t id;
+    uint8_t mapname[MAP_NAME_MAX_LEN];
 };
 
 struct msgtype_connect_notify {
@@ -138,8 +154,9 @@ struct weapon_slots {
 
 extern struct weapon weapons[];
 
-#define PLAYER_VIEWPORT_WIDTH 31
-#define PLAYER_VIEWPORT_HEIGHT 31
+/* Must be less than 25 because terminal's geometry is 80x25. */
+#define PLAYER_VIEWPORT_WIDTH 21
+#define PLAYER_VIEWPORT_HEIGHT 21
 
 enum player_enum_t {
     PLAYERS_ERROR = 0,
@@ -168,7 +185,7 @@ struct player {
     struct weapon_slots weapons;
 };
 
-#define FPS 10
+#define FPS 5
 
 struct ticks {
     uint64_t offset;
@@ -183,17 +200,6 @@ enum msg_queue_enum_t {
     MSGQUEUE_OK
 };
 
-enum {
-    MAP_EMPTY = 0,
-    MAP_WALL
-};
-
-struct map {
-    uint8_t *objs;
-    uint16_t width;
-    uint16_t height;
-};
-
 void msg_pack(struct msg*, uint8_t*);
 void msg_unpack(uint8_t*, struct msg*);
 enum msg_batch_enum_t msg_batch_push(struct msg_batch*, struct msg*);
@@ -205,7 +211,7 @@ void ticks_finish(struct ticks*);
 uint64_t ticks_get_diff(struct ticks*);
 struct player *player_init(void);
 void player_free(struct player*);
-struct map *map_load(void);
+struct map *map_load(uint8_t*);
 void map_unload(struct map*);
 
 #endif

@@ -64,28 +64,20 @@ static void msgtype_shoot_pack(struct msg *m, uint8_t *buf)
 
 static void msgtype_connect_ask_pack(struct msg *m, uint8_t *buf)
 {
-    int i;
-
-    for(i = 0; m->event.connect_ask.nick[i] != '\0'; i++) {
-        *buf++ = m->event.connect_ask.nick[i];
-    }
-    *buf++ = '\0';
+    strncpy((char *) buf, (char *) m->event.connect_ask.nick, NICK_MAX_LEN);
 }
 
 static void msgtype_connect_ok_pack(struct msg *m, uint8_t *buf)
 {
     *buf++ = m->event.connect_ok.ok;
     *buf++ = m->event.connect_ok.id;
+
+    strncpy((char *) buf, (char *) m->event.connect_ok.mapname, MAP_NAME_MAX_LEN);
 }
 
 static void msgtype_connect_notify_pack(struct msg *m, uint8_t *buf)
 {
-    int i;
-
-    for(i = 0; m->event.connect_notify.nick[i] != '\0'; i++) {
-        *buf++ = m->event.connect_notify.nick[i];
-    }
-    *buf++ = '\0';
+    strncpy((char *) buf, (char *) m->event.connect_notify.nick, NICK_MAX_LEN);
 }
 
 static void msgtype_disconnect_server_pack(struct msg *m, uint8_t *buf)
@@ -100,12 +92,7 @@ static void msgtype_disconnect_client_pack(struct msg *m, uint8_t *buf)
 
 static void msgtype_disconnect_notify_pack(struct msg *m, uint8_t *buf)
 {
-    int i;
-    
-    for(i = 0; m->event.disconnect_notify.nick[i] != '\0'; i++) {
-        *buf++ = m->event.disconnect_notify.nick[i];
-    }
-    *buf++ = '\0';
+    strncpy((char *) buf, (char *) m->event.disconnect_notify.nick, NICK_MAX_LEN);
 }
 
 /* ... and for unpacking. */
@@ -129,28 +116,20 @@ static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
 
 static void msgtype_connect_ask_unpack(uint8_t *buf, struct msg *m)
 {
-    int i;
-
-    for(i = 0; buf[i] != '\0'; i++) {
-        m->event.connect_ask.nick[i] = buf[i];
-    }
-    m->event.connect_ask.nick[i] = '\0';
+    strncpy((char *) m->event.connect_ask.nick, (char *) buf, NICK_MAX_LEN);
 }
 
 static void msgtype_connect_ok_unpack(uint8_t *buf, struct msg *m)
 {
     m->event.connect_ok.ok = (uint8_t) *buf++;
     m->event.connect_ok.id = (uint8_t) *buf++;
+
+    strncpy((char *) m->event.connect_ok.mapname, (char *) buf, MAP_NAME_MAX_LEN);
 }
 
 static void msgtype_connect_notify_unpack(uint8_t *buf, struct msg *m)
 {
-    int i;
-
-    for(i = 0; buf[i] != '\0'; i++) {
-        m->event.connect_notify.nick[i] = buf[i];
-    }
-    m->event.connect_notify.nick[i] = '\0';
+    strncpy((char *) m->event.connect_notify.nick, (char *) buf, NICK_MAX_LEN);
 }
 
 static void msgtype_disconnect_server_unpack(uint8_t *buf, struct msg *m)
@@ -165,12 +144,7 @@ static void msgtype_disconnect_client_unpack(uint8_t *buf, struct msg *m)
 
 static void msgtype_disconnect_notify_unpack(uint8_t *buf, struct msg *m)
 {
-    int i;
-
-    for(i = 0; buf[i] != '\0'; i++) {
-        m->event.disconnect_notify.nick[i] = buf[i];
-    }
-    m->event.disconnect_notify.nick[i] = '\0';
+    strncpy((char *) m->event.disconnect_notify.nick, (char *) buf, NICK_MAX_LEN);
 }
 
 /* Because I hate switches and all these condition statements
@@ -321,19 +295,98 @@ void player_free(struct player *p)
 }
 
 /* TODO: load map from file. */
-struct map *map_load(void)
+struct map *map_load(uint8_t *name)
 {
     struct map *m = malloc(sizeof(struct map));
+    char path[4096], c;
+    FILE *fmap;
+    int w, h;
 
     memset(m, 0, sizeof(struct map));
     
-    m->width = 100 + rand() % 500;
-    m->height = 100 + rand() % 500;
+    snprintf(path, 4096, "data/maps/%s", name);
+    if((fmap = fopen(path, "r")) == NULL) {
+#ifdef _SERVER_
+        free(m);
+        return NULL;
+#elif _CLIENT_
+        /* If map doesn't exists try to load it.
+           When map loaded, msgqueue_mngr_func() calls
+           map_load() and than loading is finished.
+        */
+        /* Recieved map dump into `path`. */
+        return NULL; // TODO: remove it.
+#endif
+    }
+
+    /* Determine size of a map and load it.
+       This algorithm I took from my project `snake-sdl` ;^). */
+    while((c = getc(fmap)) != '\n') {
+        m->width++;
+    }
+
+    m->height++;
+    
+    while((c = getc(fmap)) != EOF) {
+        w = 0;
+        
+        while(c != '\n') {
+            c = getc(fmap);
+            w++;
+        }
+
+        if(w != m->width) {
+            printf("Map has an incorrect geometry: %s.\n", name);
+            fclose(fmap);
+            free(m);
+            
+            return NULL;
+        }
+
+        m->height++;
+    }
+    
+    fseek(fmap, 0L, SEEK_SET);
+    
+    m->objs = malloc(sizeof(uint8_t *) * m->height);
+    for(h = 0; h < m->height; h++) {
+        m->objs[h] = malloc(sizeof(uint8_t) * m->width);
+    }
+
+    h = 0;
+    while((c = getc(fmap)) != EOF) {
+        w = 0;
+
+        while(c != '\n') { 
+            if(c == MAP_EMPTY || c == MAP_WALL) {
+                m->objs[h][w++] = c;
+                c = fgetc(fmap);
+            } else {
+                printf("Incorrect symbol '%c' has been found at %dx%d.\n", c, w, h);
+                fclose(fmap);
+                map_unload(m);
+                
+                return NULL;
+            }
+        }
+        h++;
+    }
+    
+    strncpy((char *) m->name, (char *) name, MAP_NAME_MAX_LEN);
+    
+    fclose(fmap);
     
     return m;
 }
 
 void map_unload(struct map *m)
 {
+    int h;
+    
+    for(h = 0; h < m->height; h++) {
+        free(m->objs[h]);
+    }
+    
+    free(m->objs);
     free(m);
 }

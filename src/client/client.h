@@ -16,8 +16,13 @@ void quit(int);
 void send_event(struct msg*);
 void event_disconnect_client(void);
 void event_connect_ask(void);
+void event_disconnect_server(struct msg*);
+void event_connect_ok(struct msg*);
+void event_connect_notify(struct msg*);
+void event_disconnect_notify(struct msg*);
 void *recv_mngr_func(void*);
 void *queue_mngr_func(void*);
+void *ui_mngr_func(void*);
 
 
 #endif

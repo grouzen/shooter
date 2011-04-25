@@ -14,11 +14,10 @@
 #include "ui/backend.h"
 #include "client.h"
 
-pthread_t ui_mngr_thread, recv_mngr_thread, queue_mngr_thread;
+pthread_t ui_mngr_thread, ui_event_mngr_thread, recv_mngr_thread, queue_mngr_thread;
 pthread_attr_t common_attr;
-pthread_mutex_t msgqueue_mutex;
+pthread_mutex_t msgqueue_mutex, map_mutex, player_mutex;
 pthread_cond_t queue_mngr_cond;
-struct ticks *queue_mngr_ticks;
 struct sockaddr_in server_addr;
 struct msg_queue *msgqueue = NULL;
 struct player *player = NULL;
@@ -75,9 +74,11 @@ struct msg *msgqueue_pop(struct msg_queue *q)
 void send_event(struct msg *m)
 {
     uint8_t buf[sizeof(struct msg)];
-    
+
+    pthread_mutex_lock(&player_mutex);
     m->header.id = player->id;
     m->header.seq = player->seq;
+    pthread_mutex_unlock(&player_mutex);
 
     msg_pack(m, buf);
     
@@ -109,15 +110,33 @@ void event_connect_ask(void)
 void event_connect_ok(struct msg *m)
 {
     char nl[NOTIFY_LINE_MAX_LEN];
+    uint8_t *mapname = m->event.connect_ok.mapname;
     
     if(m->event.connect_ok.ok) {
+        pthread_mutex_lock(&map_mutex);
+        map = map_load(mapname);
+        pthread_mutex_unlock(&map_mutex);
+        if(map == NULL) {
+            printf("Map couldn't be loaded: %s. Trying to load it from server...\n", mapname);
+            /* TODO: call event_map_load_ask() which calls map_load(). */
+            quit(1);
+        }
+        
+        snprintf(nl, NOTIFY_LINE_MAX_LEN, "Connected with id: %u, map: %s.", m->event.connect_ok.id, mapname);
+        ui_notify_line_set((uint8_t *) nl);
+        
+        pthread_mutex_lock(&player_mutex);
         player->id = m->event.connect_ok.id;
-        snprintf(nl, NOTIFY_LINE_MAX_LEN, "Connected with id: %u.", player->id);
+        pthread_mutex_unlock(&player_mutex);
+        
+        /* TODO: move this call to event_map_load_finish() for example. */
+        pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
     } else {
         snprintf(nl, NOTIFY_LINE_MAX_LEN, "Connection failed.");
+        ui_notify_line_set((uint8_t *) nl);
     }
     
-    ui_notify_line_set((uint8_t *) nl);
+    //ui_notify_line_set((uint8_t *) nl);
 }
 
 void event_connect_notify(struct msg *m)
@@ -145,7 +164,6 @@ void event_disconnect_server(struct msg *m)
     snprintf(nl, NOTIFY_LINE_MAX_LEN, "Server has been halted. Disconnecting...");
     ui_notify_line_set((uint8_t *) nl);
     ui_refresh();
-    
     sleep(3);
     
     quit(1);
@@ -153,25 +171,78 @@ void event_disconnect_server(struct msg *m)
 
 void event_player_position(struct msg *m)
 {
+    pthread_mutex_lock(&player_mutex);
     player->pos_x = m->event.player_position.pos_x;
     player->pos_y = m->event.player_position.pos_y;
+    pthread_mutex_unlock(&player_mutex);
+}
+
+void event_walk(void)
+{
+    struct msg msg;
+
+    msg.type = MSGTYPE_WALK;
+    msg.event.walk.direction = player->direction;
+
+    send_event(&msg);
+}
+
+void *ui_event_mngr_func(void *arg)
+{
+    while(1) {
+        int ui_event;
+        struct timespec req;
+
+        req.tv_sec = 1000 / FPS / 1000;
+        req.tv_nsec = 1000 / FPS * 1000000;
+
+        nanosleep(&req, NULL);
+        
+        ui_event = ui_get_event();
+        
+        switch(ui_event) {
+        case UI_EVENT_WALK_LEFT:
+            player->direction = DIRECTION_LEFT;
+            event_walk();
+            break;
+        case UI_EVENT_WALK_RIGHT:
+            player->direction = DIRECTION_RIGHT;
+            event_walk();
+            break;
+        case UI_EVENT_WALK_UP:
+            player->direction = DIRECTION_UP;
+            event_walk();
+            break;
+        case UI_EVENT_WALK_DOWN:
+            player->direction = DIRECTION_DOWN;
+            event_walk();
+            break;
+        default:
+            /*
+            player->direction = ui_event;
+            event_walk();
+            */
+            break;
+        }
+    }
 }
 
 /* Init ui_backend. */
 void *ui_mngr_func(void *arg)
 {
+    pthread_create(&ui_event_mngr_thread, &common_attr, ui_event_mngr_func, NULL);
     
     if(ui_init() == UI_ERROR) {
         fprintf(stderr, "UI couldn't init.\n");
     }
     
-    quit(1);
-    
+    quit(1);   
 }
 
 void *recv_mngr_func(void *arg)
 {
-    queue_mngr_ticks = ticks_start();
+    /* TODO: ticks_finish(). */
+    struct ticks *ticks = ticks_start();
 
     /* TODO: remove this ugly hack. */
     sleep(1);
@@ -181,8 +252,8 @@ void *recv_mngr_func(void *arg)
         struct msg_batch msgbatch;
         uint8_t *chunk;
 
-        if(ticks_get_diff(queue_mngr_ticks) > 1000 / FPS) {
-            ticks_update(queue_mngr_ticks);
+        if(ticks_get_diff(ticks) > 1000 / FPS) {
+            ticks_update(ticks);
             pthread_cond_signal(&queue_mngr_cond);
         }
         
@@ -202,7 +273,9 @@ void *recv_mngr_func(void *arg)
             if(msgqueue_push(msgqueue, &m) == MSGQUEUE_ERROR) {
                 fprintf(stderr, "client: msgqueue_push: couldn't push data into queue.\n");
             } else {
+                pthread_mutex_lock(&player_mutex);
                 player->seq++;
+                pthread_mutex_unlock(&player_mutex);
             }
         }
         pthread_mutex_unlock(&msgqueue_mutex);
@@ -220,6 +293,12 @@ void *queue_mngr_func(void *arg)
         while((m = msgqueue_pop(msgqueue)) != NULL) {
             /* TODO: just fucking do it!. */
             /* TODO: check player->id, if it's 0 than warn. */
+            
+            /* TODO: figure out how to return this case into switch.
+               Problem in that we cann't start a game until
+               map is not loaded
+            */
+            
             switch(m->type) {
             case MSGTYPE_CONNECT_OK:
                 event_connect_ok(m);
@@ -252,20 +331,27 @@ void quit(int signum)
     if(signum > 0) {
         pthread_cancel(recv_mngr_thread);
         pthread_cancel(ui_mngr_thread);
+        pthread_cancel(ui_event_mngr_thread);
         pthread_cancel(queue_mngr_thread);
     }
     
     pthread_join(recv_mngr_thread, NULL);
     pthread_join(ui_mngr_thread, NULL);
+    pthread_join(ui_event_mngr_thread, NULL);
     pthread_join(queue_mngr_thread, NULL);
 
     ui_free();
     event_disconnect_client();
     
     close(sd);
+    if(map != NULL) {
+        map_unload(map);
+    }
     msgqueue_free(msgqueue);
     player_free(player);
     pthread_mutex_destroy(&msgqueue_mutex);
+    pthread_mutex_destroy(&map_mutex);
+    pthread_mutex_destroy(&player_mutex);
     pthread_cond_destroy(&queue_mngr_cond);
     pthread_attr_destroy(&common_attr);
     pthread_exit(NULL);
@@ -295,15 +381,16 @@ int main(int argc, char **argv)
     }
 
     pthread_mutex_init(&msgqueue_mutex, NULL);
+    pthread_mutex_init(&map_mutex, NULL);
+    pthread_mutex_init(&player_mutex, NULL);
     pthread_cond_init(&queue_mngr_cond, NULL);
     
     pthread_attr_init(&common_attr);
     pthread_attr_setdetachstate(&common_attr, PTHREAD_CREATE_JOINABLE);
 
-    pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
-    pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
     pthread_create(&queue_mngr_thread, &common_attr, queue_mngr_func, NULL);
-
+    pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
+    
     event_connect_ask();
     
     quit(0);
