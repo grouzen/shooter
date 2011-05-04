@@ -7,26 +7,9 @@
 
 ** todo for all
 *** TODO Try to figure out what should be a battle mechanism.
-*** TODO Makefile: passing parameters for each part(server, client)
+*** DONE Makefile: passing parameters for each part(server, client)
     For a while should be used "make CFLAGS=-D[_SERVER_|_CLIENT_] [server|client]".
 
-    MR 20110415T06:14:34Z 003 <[AvataR]> 
-    build/server/%.o : src/%.c
-        $(CXX) $(CFLAGS) -DSERVER $@ $<
-    build/client/%.o : src/%.c
-        $(CXX) $(CFLAGS) -DCLIENT $@ $<                 
-    
-    MR 20110415T06:14:55Z 000 <пкщгяут[slacktop]> [AvataR] не подходит
-    MR 20110415T06:14:59Z 000 <[AvataR]> схуяле?
-    MR 20110415T06:15:01Z 000 <пкщгяут[slacktop]> у меня файл cdata.c общий
-    MR 20110415T06:15:10Z 000 <[AvataR]> ну и что?
-    MR 20110415T06:15:12Z 000 <пкщгяут[slacktop]> гм
-    MR 20110415T06:15:22Z 000 <пкщгяут[slacktop]> т.е ты предлагаешь создавать два разных обьектника?
-    MR 20110415T06:15:37Z 000 <[AvataR]> ну ты же создаешь два разных объектника? ))
-    MR 20110415T06:15:39Z 000 <пкщгяут[slacktop]> алсо, что значят $@ $< ?
-    MR 20110415T06:15:45Z 000 <пкщгяут[slacktop]> нет
-    MR 20110415T06:15:47Z 000 <[AvataR]> $@ -- цель
-    MR 20110415T06:15:53Z 000 <[AvataR]> $< - первый деп
   
 * Closer details
 ** Server

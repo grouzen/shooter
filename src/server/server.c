@@ -23,6 +23,11 @@ int sd;
 
 #define MAX_PLAYERS 16
 
+enum player_enum_t {
+    PLAYERS_ERROR = 0,
+    PLAYERS_OK
+};
+
 struct players_slot {
     struct players_slot *next;
     struct players_slot *prev;
@@ -140,6 +145,37 @@ enum player_enum_t players_release(struct players_slots *slots, uint8_t id)
     }
 
     return PLAYERS_ERROR;
+}
+
+enum collision_enum_t {
+    COLLISION_NONE = 0,
+    COLLISION_WALL,
+    COLLISION_PLAYER,
+    COLLISION_BONUS
+};
+
+/* TODO: add `struct bonuses_list`. */
+enum collision_enum_t collision_check_player(struct player *p, struct map *m,
+                                             struct players_slots *s)
+{
+    struct players_slot *slot = s->root;
+    
+    if((int16_t) p->pos_x < 0 || (int16_t) p->pos_y < 0 || p->pos_x >= m->width ||
+       p->pos_y >= m->height || m->objs[p->pos_y][p->pos_x] == MAP_WALL) {
+        return COLLISION_WALL;
+    }
+
+    while(slot != NULL) {
+        struct player *sp = slot->p;
+
+        if(sp != p && sp->pos_x == p->pos_x && sp->pos_y == p->pos_y) {
+            return COLLISION_PLAYER;
+        }
+        
+        slot = slot->next;
+    }
+
+    return COLLISION_NONE;
 }
 
 #define MSGQUEUE_INIT_SIZE 64
@@ -349,6 +385,10 @@ void event_walk(struct msg_queue_node *qnode)
 {
     struct msg msg;
     struct player *p = players->slots[qnode->data->header.id]->p;
+    uint16_t px, py;
+
+    px = p->pos_x;
+    py = p->pos_y;
     
     p->direction = qnode->data->event.walk.direction;
     /* TODO: check collisions and if all seems good
@@ -357,19 +397,24 @@ void event_walk(struct msg_queue_node *qnode)
     
     switch(p->direction) {
     case DIRECTION_LEFT:
-        p->pos_x -= 1;
+        p->pos_x--;
         break;
     case DIRECTION_RIGHT:
-        p->pos_x += 1;
+        p->pos_x++;
         break;
     case DIRECTION_UP:
-        p->pos_y -= 1;
+        p->pos_y--;
         break;
     case DIRECTION_DOWN:
-        p->pos_y += 1;
+        p->pos_y++;
         break;
     default:
         break;
+    }
+
+    if(collision_check_player(p, map, players) != COLLISION_NONE) {
+        p->pos_x = px;
+        p->pos_y = py;
     }
 
     printf("p->pos_x: %d, p->pos_y = %d\n", p->pos_x, p->pos_y);

@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+/* Must be less than 25 because terminal's geometry is 80x25. */
+#define PLAYER_VIEWPORT_WIDTH 21
+#define PLAYER_VIEWPORT_HEIGHT 21
+
 #define MAP_EMPTY ' '
 #define MAP_WALL '#'
 
@@ -154,15 +158,6 @@ struct weapon_slots {
 
 extern struct weapon weapons[];
 
-/* Must be less than 25 because terminal's geometry is 80x25. */
-#define PLAYER_VIEWPORT_WIDTH 21
-#define PLAYER_VIEWPORT_HEIGHT 21
-
-enum player_enum_t {
-    PLAYERS_ERROR = 0,
-    PLAYERS_OK
-};
-
 enum {
     DIRECTION_LEFT,
     DIRECTION_RIGHT,
@@ -185,7 +180,7 @@ struct player {
     struct weapon_slots weapons;
 };
 
-#define FPS 5
+#define FPS 10
 
 struct ticks {
     uint64_t offset;

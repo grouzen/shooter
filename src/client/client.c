@@ -204,18 +204,30 @@ void *ui_event_mngr_func(void *arg)
         case UI_EVENT_WALK_LEFT:
             player->direction = DIRECTION_LEFT;
             event_walk();
+            pthread_mutex_lock(&player_mutex);
+            player->pos_x--;
+            pthread_mutex_unlock(&player_mutex);
             break;
         case UI_EVENT_WALK_RIGHT:
             player->direction = DIRECTION_RIGHT;
             event_walk();
+            pthread_mutex_lock(&player_mutex);
+            player->pos_x++;
+            pthread_mutex_unlock(&player_mutex);
             break;
         case UI_EVENT_WALK_UP:
             player->direction = DIRECTION_UP;
             event_walk();
+            pthread_mutex_lock(&player_mutex);
+            player->pos_y--;
+            pthread_mutex_unlock(&player_mutex);
             break;
         case UI_EVENT_WALK_DOWN:
             player->direction = DIRECTION_DOWN;
             event_walk();
+            pthread_mutex_lock(&player_mutex);
+            player->pos_y++;
+            pthread_mutex_unlock(&player_mutex);
             break;
         default:
             /*
@@ -224,6 +236,8 @@ void *ui_event_mngr_func(void *arg)
             */
             break;
         }
+
+        ui_refresh();
     }
 }
 
