@@ -21,7 +21,7 @@
 WINDOW *window = NULL;
 struct screen screen;
 uint8_t notify_line_history[NOTIFY_LINE_HISTORY_MAX][NOTIFY_LINE_MAX_LEN];
-pthread_mutex_t ui_event_mutex;
+pthread_mutex_t ui_event_mutex, ui_refresh_mutex;
 
 /* The abstraction for getting
    and setting pressed keys.
@@ -73,16 +73,16 @@ int ui_get_event(void)
     while(ui_event_pop(&event) != 0);
     
     switch(lkey) {
-    case 4:
+    case 'a':
         return UI_EVENT_WALK_LEFT;
         break;
-    case 5:
+    case 'd':
         return UI_EVENT_WALK_RIGHT;
         break;
-    case 3:
+    case 'w':
         return UI_EVENT_WALK_UP;
         break;
-    case 2:
+    case 's':
         return UI_EVENT_WALK_DOWN;
         break;
     default:
@@ -119,6 +119,8 @@ static void ui_screen_update(void)
     
     /* Update screen's offsets. */
     pthread_mutex_lock(&player_mutex);
+    pthread_mutex_lock(&map_mutex);
+    
     if(player->pos_x <= screen.width / 2) {
         screen.offset_x = 0;
     } else if(player->pos_x >= map->width - screen.width / 2) {
@@ -134,87 +136,29 @@ static void ui_screen_update(void)
     } else {
         screen.offset_y = player->pos_y - screen.height / 2;
     }
-    pthread_mutex_unlock(&player_mutex);
     /* TODO: dispatch and colorize. */
-    pthread_mutex_lock(&map_mutex);
-    for(h = 1, y = screen.offset_y; h < screen.height; h++, y++) {
+
+    for(h = 2, y = screen.offset_y; h < screen.height; h++, y++) {
         for(w = 1, x = screen.offset_x; w < screen.width + 1; w++, x++) {
             mvwaddch(window, h, w, map->objs[y][x] | A_DIM);
         }
     }
+    
+    mvwaddch(window, player->pos_y + 2 - screen.offset_y,
+             player->pos_x + 1 - screen.offset_x, UI_MAP_PLAYER_UP | COLOR_PAIR(3));
+    
     pthread_mutex_unlock(&map_mutex);
-    char l[64];
-    snprintf(l, 64, "of_x: %u, of_y: %u, p_x: %u, p_y: %u",
-             screen.offset_x, screen.offset_y, player->pos_x, player->pos_y);
-    ui_notify_line_set(l);
-    pthread_mutex_lock(&player_mutex);
-    mvwaddch(window, player->pos_y + 1, player->pos_x + 1, UI_MAP_PLAYER_UP | COLOR_PAIR(3));
     pthread_mutex_unlock(&player_mutex);
 }
-
-#if 0
-/* Updates statusline shown at the top line of viewport */
-static void ui_update_status_line(void)
-{
-    int i, space_width;
-    char status_line[screen.width],
-        hp[12],
-        weapon[WEAPON_NAME_MAX_LEN + 10];
-    
-    /* Health points block
-     * Would look like this: HP: 100/100 */
-    snprintf(hp, sizeof(hp) * sizeof(char), "HP: %u/100", player->hp);
-    /* Weapon block
-     * Would look like this: W: [123456789] Rocket(0-100) */
-    snprintf(weapon, sizeof(weapon) * sizeof(char),
-             "W: %s(%u-%u)",
-             weapons[player->weapons.current].name,
-             weapons[player->weapons.current].damage_max,
-             weapons[player->weapons.current].damage_min);
-
-    
-    /* Concateneting strings together to get resulting status line */
-    strcat(status_line, nick);
-    /* add spaces to center weapon_str */
-    space_width = viewport_width - 2 - strlen(nick) - strlen(hp_str) - strlen(weapon_str);
-    space_width = floor(space_width / 2);
-    for(i = 0; i < space_width; i++)
-        tmp[i] = ' ';
-    tmp[space_width] = '\0';
-    strcat(status_line, tmp);
-    strcat(status_line, weapon_str);
-    /* add more space to make hp_str right-aligned */
-    space_width = viewport_width - 2 - strlen(nick) - strlen(hp_str) - strlen(weapon_str);
-    space_width = ceil(space_width / 2);
-    for(i = 0; i < space_width; i++)
-        tmp[i] = ' ';
-    tmp[space_width] = '\0';
-    strcat(status_line, tmp);
-    strcat(status_line, hp_str);
-
-    /* remove previous status line from the screen */
-    for(i=1; i<viewport_width; i++)
-        mvwaddch(window, 1, i, ' ');
-    /* put new one onto the same place */
-    if(viewport_width > 82 && viewport_height > 27) {
-        mvwaddstr(window, 1, 2, status_line);
-    } else {
-        mvwaddstr(window, 1, 1, status_line);
-    }
-    
-    free(tmp);
-    free(hp_str);
-    free(weapon_str);
-    free(status_line);
-}
-#endif
 
 /* Applies all the changes made to screen by other functions */
 void ui_refresh(void)
 {
+    pthread_mutex_lock(&ui_refresh_mutex);
     ui_notify_line_update();
     ui_screen_update();
     wrefresh(window);
+    pthread_mutex_unlock(&ui_refresh_mutex);
 }
         
 enum ui_enum_t ui_init(void)
@@ -262,6 +206,7 @@ enum ui_enum_t ui_init(void)
     ui_refresh();
 
     pthread_mutex_init(&ui_event_mutex, NULL);
+    pthread_mutex_init(&ui_refresh_mutex, NULL);
     
     while((key = getch()) != 'q') {
         ui_event_push(&event, key);
@@ -273,5 +218,6 @@ enum ui_enum_t ui_init(void)
 void ui_free(void)
 {
     pthread_mutex_destroy(&ui_event_mutex);
+    pthread_mutex_destroy(&ui_refresh_mutex);
     endwin();
 }
