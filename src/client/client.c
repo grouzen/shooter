@@ -9,6 +9,9 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <pthread.h>
+#ifdef __FreeBSD__
+#include <netinet/in.h>
+#endif
 
 #include "../cdata.h"
 #include "ui/backend.h"

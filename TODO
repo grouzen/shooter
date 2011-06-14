@@ -9,7 +9,6 @@
 *** TODO Try to figure out what should be a battle mechanism.
 *** DONE Makefile: passing parameters for each part(server, client)
     For a while should be used "make CFLAGS=-D[_SERVER_|_CLIENT_] [server|client]".
-
   
 * Closer details
 ** Server
@@ -42,7 +41,12 @@
    connection event which concerns only one player who sends it.
    
    Only client fills `msg.header.id` and `msg.header.seq` fields,
-   server verify it only and if necessary sends diff.
+   server verify it and if necessary sends diff.
+
+   _VERY FUCKING IMPORTANT!_
+   In fact on each frame server sends to the clients information 
+   about objects which are in a player's viewport only. All world's 
+   state is never sent to the clients!
 
 *** todo for the server side.
 **** TODO Write function sync_mngr_func()
@@ -74,25 +78,19 @@
    That's all ;^).
 
 
-       client in mostly works like a server.
-     ,--------
+       Client in mostly works like a server.
+     ,---------------------------------------
      |
      +- msgqueue_mngr_thread: works like in a server part.
      |
-     +- ui_mngr_thread: just init ui.
+     +- ui_mngr_thread: init ui and start thread ui_event_mngr_func.
      |
-     +- recv_mngr_thread: receives messages from server and adds them to msgqueue.
-     |                    Also it must watch on each message type from batch and if
-     |                    necessary handles some of them and than sends result to the server.
+     +- ui_event_mngr_thread: on each frame read UI's event and send it to the server.
      |
-     +- send_mngr_thread: reads last event and sends message to server. TODO: cancel.
-     |
-     +- ui_read_thread: reads user's actions and updates last event variable. TODO: cancel.
-     |                  Must be implemented for each ui backend.
-     |
-     `- ui_update_thread: reads msgqueue and updates UI accordingly.
-                          Must be implemented for each ui backend. TODO: cancel.
-            
+     '- recv_mngr_thread: receives messages from server and adds them to msgqueue.
+                          Also it must watch on each message type from batch and if
+                          necessary handles some of them and than sends result to the server.
+     
 
 *** UI
     
@@ -132,8 +130,10 @@
      Loser                      0      11
     ----------------------------------------
 
+    History of notify line becomes visible when statistics is requested.
+
 *** Just a fucking todo for the client part
-**** TODO Write basic UI in ncurses
+**** DONE Write basic UI in ncurses
      Must be an opportunity to write UI in various toolkits(SDL, OGL, and etc).
 **** TODO Think about events(actions) that client can makes
      For example: to shoot, to run, to die, to take up an objects and so on.
