@@ -313,7 +313,7 @@ struct map *map_load(uint8_t *name)
         free(m);
         return NULL;
 #elif _CLIENT_
-        /* If map doesn't exists try to load it.
+        /* If map doesn't exist try to load it.
            When map loaded, msgqueue_mngr_func() calls
            map_load() and than loading is finished.
         */

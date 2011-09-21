@@ -9,7 +9,6 @@
 
 #define MAP_EMPTY ' '
 #define MAP_WALL '#'
-
 #define MAP_NAME_MAX_LEN 16
 
 struct map {
