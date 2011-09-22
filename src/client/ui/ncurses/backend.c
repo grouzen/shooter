@@ -13,10 +13,7 @@
 #define UI_MAP_EMPTY ' '
 #define UI_MAP_WALL_FOG '#' | A_DIM | COLOR_PAIR(2)
 #define UI_MAP_WALL '#' | A_BOLD | COLOR_PAIR(1)
-#define UI_MAP_PLAYER_UP '^' | A_BOLD
-#define UI_MAP_PLAYER_DOWN 'v' | A_BOLD
-#define UI_MAP_PLAYER_LEFT '>' | A_BOLD
-#define UI_MAP_PLAYER_RIGHT '<' | A_BOLD
+#define UI_MAP_PLAYER '@' | A_BOLD
 
 WINDOW *window = NULL;
 struct screen screen;
@@ -91,6 +88,7 @@ int ui_get_event(void)
     }
 }
 
+/* TODO: dbehavior like printf(). */
 void ui_notify_line_set(uint8_t *l)
 {
     int i;
@@ -145,7 +143,7 @@ static void ui_screen_update(void)
     }
     
     mvwaddch(window, player->pos_y + 2 - screen.offset_y,
-             player->pos_x + 1 - screen.offset_x, UI_MAP_PLAYER_UP | COLOR_PAIR(3));
+             player->pos_x + 1 - screen.offset_x, UI_MAP_PLAYER | COLOR_PAIR(3));
     
     pthread_mutex_unlock(&map_mutex);
     pthread_mutex_unlock(&player_mutex);

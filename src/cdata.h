@@ -3,14 +3,25 @@
 
 #include <stdint.h>
 
-/* Must be less than 25 because terminal's geometry is 80x25. */
+/* Must be less than 25 because terminal's geometry is 80x25
+   minus status lines on top and bottom of screen.
+*/
 #define PLAYER_VIEWPORT_WIDTH 21
 #define PLAYER_VIEWPORT_HEIGHT 21
 
+/* Each object on the map represented by ascii symbol. */
 #define MAP_EMPTY ' '
 #define MAP_WALL '#'
-#define MAP_NAME_MAX_LEN 16
+#define MAP_PLAYER '@'
+#define MAP_BULLET '*'
+#define MAP_NAME_MAX_LEN 32
 
+/* On server side `**objs` can contain only MAP_WALL and MAP_EMPTY symbols,
+   because information about bullets, players, etc is in actual state and
+   full detailed on arrays, structes and lists.
+   Client must draw objects on a screen only and nothing more, that's why
+   all information about world can be presented in simple form(2d array).
+ */
 struct map {
     /* On client part if name doesn't set,
        means that map is not loaded yet.
@@ -21,9 +32,7 @@ struct map {
     uint16_t height;
 };
 
-/*
- * Structures which describes message body
- */
+/* Structures which describes message body. */
 enum {
     //MSGTYPE_NONE = -1,
     MSGTYPE_WALK = 0,
@@ -179,6 +188,40 @@ struct player {
     struct weapon_slots weapons;
 };
 
+#ifdef _SERVER_
+#define MAX_PLAYERS 16
+
+enum player_enum_t {
+    PLAYERS_ERROR = 0,
+    PLAYERS_OK
+};
+
+struct players_slot {
+    struct players_slot *next;
+    struct players_slot *prev;
+    struct player *p;
+};
+
+struct players_slots {
+    struct players_slot *root;
+    uint8_t count;
+    /* Describes what slots are free and occupied.
+       It is an array of pointers to slot,
+       if it equals NULL than slot is free.
+    */
+    struct players_slot *slots[MAX_PLAYERS];
+};
+#endif
+
+/* For collisions detection on server and client(movement prediction). */
+enum collision_enum_t {
+    COLLISION_NONE = 0,
+    COLLISION_WALL,
+    COLLISION_PLAYER,
+    COLLISION_BONUS,
+    COLLISION_BULLET
+};
+
 #define FPS 10
 
 struct ticks {
@@ -207,5 +250,12 @@ struct player *player_init(void);
 void player_free(struct player*);
 struct map *map_load(uint8_t*);
 void map_unload(struct map*);
+#ifdef _SERVER_
+enum collision_enum_t collision_check_player(struct player*,
+                                             struct map*,
+                                             struct players_slots*);
+#elif _CLIENT_
+enum collision_enum_t collision_check_player(struct player*, struct map*);
+#endif
 
 #endif
