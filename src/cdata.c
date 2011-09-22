@@ -393,3 +393,42 @@ void map_unload(struct map *m)
     free(m->objs);
     free(m);
 }
+
+#ifdef _SERVER_
+/* TODO: add `struct bonuses_list`, bullets, etc. */
+enum collision_enum_t collision_check_player(struct player *p,
+                                             struct map *m,
+                                             struct players_slots *s)
+#elif _CLIENT_
+/* On client we need check only MAP_WALL and MAP_PLAYER cases,
+   because on other cases we can put player point on bullet or bonus
+   and anything terrible doesn't happen.
+*/
+enum collision_enum_t collision_check_player(struct player *p, struct map *m)
+#endif
+{
+#ifdef _SERVER_
+    struct players_slot *slot = s->root;
+#endif
+    if((int16_t) p->pos_x < 0 || (int16_t) p->pos_y < 0 || p->pos_x >= m->width ||
+       p->pos_y >= m->height || m->objs[p->pos_y][p->pos_x] == MAP_WALL) {
+        return COLLISION_WALL;
+    }
+#ifdef _SERVER_
+    while(slot != NULL) {
+        struct player *sp = slot->p;
+
+        if(sp != p && sp->pos_x == p->pos_x && sp->pos_y == p->pos_y) {
+            return COLLISION_PLAYER;
+        }
+        
+        slot = slot->next;
+    }
+#elif _CLIENT_
+    if(m->objs[p->pos_y][p->pos_x] == MAP_PLAYER) {
+        return COLLISION_PLAYER;
+    }
+#endif
+    
+    return COLLISION_NONE;
+}

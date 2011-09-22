@@ -24,29 +24,6 @@ struct ticks *queue_mngr_ticks;
 struct map *map;
 int sd;
 
-#define MAX_PLAYERS 16
-
-enum player_enum_t {
-    PLAYERS_ERROR = 0,
-    PLAYERS_OK
-};
-
-struct players_slot {
-    struct players_slot *next;
-    struct players_slot *prev;
-    struct player *p;
-};
-
-struct players_slots {
-    struct players_slot *root;
-    uint8_t count;
-    /* Describes what slots are free and occupied.
-       It is an array of pointers to slot,
-       if it equals NULL than slot is free.
-    */
-    struct players_slot *slots[MAX_PLAYERS];
-};
-
 struct players_slots *players_init(void)
 {
     struct players_slots *slots;
@@ -148,37 +125,6 @@ enum player_enum_t players_release(struct players_slots *slots, uint8_t id)
     }
 
     return PLAYERS_ERROR;
-}
-
-enum collision_enum_t {
-    COLLISION_NONE = 0,
-    COLLISION_WALL,
-    COLLISION_PLAYER,
-    COLLISION_BONUS
-};
-
-/* TODO: add `struct bonuses_list`. */
-enum collision_enum_t collision_check_player(struct player *p, struct map *m,
-                                             struct players_slots *s)
-{
-    struct players_slot *slot = s->root;
-    
-    if((int16_t) p->pos_x < 0 || (int16_t) p->pos_y < 0 || p->pos_x >= m->width ||
-       p->pos_y >= m->height || m->objs[p->pos_y][p->pos_x] == MAP_WALL) {
-        return COLLISION_WALL;
-    }
-
-    while(slot != NULL) {
-        struct player *sp = slot->p;
-
-        if(sp != p && sp->pos_x == p->pos_x && sp->pos_y == p->pos_y) {
-            return COLLISION_PLAYER;
-        }
-        
-        slot = slot->next;
-    }
-
-    return COLLISION_NONE;
 }
 
 #define MSGQUEUE_INIT_SIZE 64
@@ -429,10 +375,9 @@ void event_walk(struct msg_queue_node *qnode)
     msg_batch_push(&(p->msgbatch), &msg);
 }
 
-/* This thread must do the only one
- * thing - recieves messages from many
- * clients and then pushs them to msgqueue.
- */
+/* This thread must do the only one thing - recieves
+   messages from many clients and then pushs them to msgqueue.
+*/
 void *recv_mngr_func(void *arg)
 {
     struct sockaddr_in client_addr;

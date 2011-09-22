@@ -184,9 +184,11 @@ void event_walk(void)
 {
     struct msg msg;
 
+    pthread_mutex_lock(&player_mutex);
     msg.type = MSGTYPE_WALK;
     msg.event.walk.direction = player->direction;
-
+    pthread_mutex_unlock(&player_mutex);
+    
     send_event(&msg);
 }
 
@@ -195,6 +197,9 @@ void *ui_event_mngr_func(void *arg)
     while(1) {
         int ui_event;
         struct timespec req;
+        uint16_t px, py;
+        uint8_t direction;
+        int retval;
 
         req.tv_sec = 1000 / FPS / 1000;
         req.tv_nsec = 1000 / FPS * 1000000;
@@ -203,43 +208,48 @@ void *ui_event_mngr_func(void *arg)
         
         ui_event = ui_get_event();
         
+        pthread_mutex_lock(&player_mutex);
+        
+        /* Just remember previous parameters. */
+        px = player->pos_x;
+        py = player->pos_y;
+        direction = player->direction;
+
         switch(ui_event) {
         case UI_EVENT_WALK_LEFT:
             player->direction = DIRECTION_LEFT;
-            event_walk();
-            pthread_mutex_lock(&player_mutex);
             player->pos_x--;
-            pthread_mutex_unlock(&player_mutex);
             break;
         case UI_EVENT_WALK_RIGHT:
             player->direction = DIRECTION_RIGHT;
-            event_walk();
-            pthread_mutex_lock(&player_mutex);
             player->pos_x++;
-            pthread_mutex_unlock(&player_mutex);
             break;
         case UI_EVENT_WALK_UP:
             player->direction = DIRECTION_UP;
-            event_walk();
-            pthread_mutex_lock(&player_mutex);
             player->pos_y--;
-            pthread_mutex_unlock(&player_mutex);
             break;
         case UI_EVENT_WALK_DOWN:
             player->direction = DIRECTION_DOWN;
-            event_walk();
-            pthread_mutex_lock(&player_mutex);
             player->pos_y++;
-            pthread_mutex_unlock(&player_mutex);
             break;
         default:
-            /*
-            player->direction = ui_event;
-            event_walk();
-            */
             break;
         }
+        
+        retval = collision_check_player(player, map);
+        
+        if(retval != COLLISION_NONE) {
+            player->pos_x = px;
+            player->pos_y = py;
+            player->direction = direction;
+        }
+        
+        pthread_mutex_unlock(&player_mutex);
 
+        if(ui_event != UI_EVENT_NONE) {
+            event_walk();
+        }
+         
         ui_refresh();
     }
 }
