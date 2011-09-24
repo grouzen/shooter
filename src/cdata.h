@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 /* Must be less than 25 because terminal's geometry is 80x25
-   minus status lines on top and bottom of screen.
-*/
+ * minus status lines on top and bottom of screen.
+ */
 #define PLAYER_VIEWPORT_WIDTH 21
 #define PLAYER_VIEWPORT_HEIGHT 21
 
@@ -14,22 +14,39 @@
 #define MAP_WALL '#'
 #define MAP_PLAYER '@'
 #define MAP_BULLET '*'
+#define MAP_RESPAWN '!'
 #define MAP_NAME_MAX_LEN 32
 
 /* On server side `**objs` can contain only MAP_WALL and MAP_EMPTY symbols,
-   because information about bullets, players, etc is in actual state and
-   full detailed on arrays, structes and lists.
-   Client must draw objects on a screen only and nothing more, that's why
-   all information about world can be presented in simple form(2d array).
+ * because information about bullets, players, etc is in actual state and
+ * full detailed on arrays, structes and lists.
+ * Client must draw objects on a screen only and nothing more, that's why
+ * all information about world can be presented in simple form(2d array).
  */
+#ifdef _SERVER_
+#define MAP_RESPAWNS_MAX 16
+
+/* This struct needed for optimisation of searching
+ * respawn points each time when new player connected.
+ */
+struct map_respawn {
+    uint16_t w;
+    uint16_t h;
+};
+#endif
+
 struct map {
     /* On client part if name doesn't set,
-       means that map is not loaded yet.
-    */
+     * means that map is not loaded yet.
+     */
     uint8_t name[MAP_NAME_MAX_LEN];
     uint8_t **objs;
     uint16_t width;
     uint16_t height;
+#ifdef _SERVER_
+    struct map_respawn respawns[MAP_RESPAWNS_MAX];
+    uint8_t respawns_count;
+#endif
 };
 
 /* Structures which describes message body. */

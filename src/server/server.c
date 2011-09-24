@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h> /* time() */
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
@@ -293,6 +294,7 @@ void event_connect_ask(struct msg_queue_node *qnode)
                0, (struct sockaddr *) qnode->addr, sizeof(struct sockaddr_in));
     } else {
         struct players_slot *slot = players->root;
+        struct map_respawn *respawn;
         
         printf("Player has been connected with nick: %s, total players: %u\n",
                newplayer->nick, players->count);
@@ -306,9 +308,13 @@ void event_connect_ask(struct msg_queue_node *qnode)
 
         newplayer->seq++;
         msg.type = MSGTYPE_PLAYER_POSITION;
-        /* TODO: generate with some magic code. */
-        newplayer->pos_x = 3;
-        newplayer->pos_y = 3;
+
+        /* Get random respawn point. */
+        srand((unsigned int) time(NULL));
+        respawn = &(map->respawns[0 + rand() % map->respawns_count]);
+        newplayer->pos_x = respawn->w;
+        newplayer->pos_y = respawn->h;
+        
         msg.event.player_position.pos_x = newplayer->pos_x;
         msg.event.player_position.pos_y = newplayer->pos_y;
         msg_batch_push(&(newplayer->msgbatch), &msg);

@@ -362,8 +362,19 @@ struct map *map_load(uint8_t *name)
 
         while(c != '\n') { 
             if(c == MAP_EMPTY || c == MAP_WALL) {
-                m->objs[h][w++] = c;
-                c = fgetc(fmap);
+                m->objs[h][w] = c;
+            } else if(c == MAP_RESPAWN) {
+#ifdef _SERVER_
+                if(m->respawns_count < MAP_RESPAWNS_MAX - 1) {
+                    m->respawns[m->respawns_count].w = w;
+                    m->respawns[m->respawns_count].h = h;
+                    m->respawns_count++;
+                } else {
+                    printf("%c, %d\n", c, w);
+                    printf("Max count of respawns was reached: %d.\n", MAP_RESPAWNS_MAX);
+                }
+#endif
+                m->objs[h][w] = MAP_EMPTY;
             } else {
                 printf("Incorrect symbol '%c' has been found at %dx%d.\n", c, w, h);
                 fclose(fmap);
@@ -371,7 +382,11 @@ struct map *map_load(uint8_t *name)
                 
                 return NULL;
             }
+            
+            c = fgetc(fmap);
+            w++;
         }
+        
         h++;
     }
     
