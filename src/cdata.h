@@ -9,6 +9,13 @@
 #define PLAYER_VIEWPORT_WIDTH 21
 #define PLAYER_VIEWPORT_HEIGHT 21
 
+#define IN_PLAYER_VIEWPORT(x, y, px, py)            \
+    ((x) >= (px) - PLAYER_VIEWPORT_WIDTH / 2 &&     \
+     (x) <= (px) + PLAYER_VIEWPORT_WIDTH / 2 &&     \
+     (y) >= (py) - PLAYER_VIEWPORT_HEIGHT / 2 &&    \
+     (y) <= (py) + PLAYER_VIEWPORT_HEIGHT / 2)
+        
+
 /* Each object on the map represented by ascii symbol. */
 #define MAP_EMPTY ' '
 #define MAP_WALL '#'

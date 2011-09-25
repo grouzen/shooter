@@ -206,10 +206,7 @@ void send_events(void)
             struct player *lp = lslot->p;
             struct msg m;
 
-            if(lp->pos_x >= p->pos_x - PLAYER_VIEWPORT_WIDTH / 2 &&
-               lp->pos_x <= p->pos_x + PLAYER_VIEWPORT_WIDTH / 2 &&
-               lp->pos_y >= p->pos_y - PLAYER_VIEWPORT_HEIGHT / 2 &&
-               lp->pos_y <= p->pos_y + PLAYER_VIEWPORT_HEIGHT / 2) {
+            if(IN_PLAYER_VIEWPORT(lp->pos_x, lp->pos_y, p->pos_x, p->pos_y)) {
                 p->seq++;
                 m.type = MSGTYPE_ENEMY_POSITION;
                 m.event.enemy_position.pos_x = lp->pos_x;

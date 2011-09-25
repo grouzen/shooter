@@ -326,6 +326,7 @@ void *queue_mngr_func(void *arg)
         
         pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
 
+        /* Clean map from players, bullets, bonuses and other objects. */
         if(map != NULL) {
             pthread_mutex_lock(&map_mutex);
             for(h = 0; h < map->height; h++) {

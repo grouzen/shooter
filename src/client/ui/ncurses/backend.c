@@ -139,10 +139,22 @@ static void ui_screen_update(void)
     /* TODO: dispatch and colorize. */
     for(h = 2, y = screen.offset_y; h < screen.height; h++, y++) {
         for(w = 1, x = screen.offset_x; w < screen.width + 1; w++, x++) {
-            if(map->objs[y][x] == MAP_PLAYER) {
+            uint8_t o = map->objs[y][x];
+            switch(o) {
+            case MAP_PLAYER:
                 mvwaddch(window, h, w, UI_MAP_ENEMY);
-            } else {
-                mvwaddch(window, h, w, map->objs[y][x] | A_DIM);
+                break;
+            case MAP_WALL:
+                if(IN_PLAYER_VIEWPORT(x, y, player->pos_x, player->pos_y)) {
+                    mvwaddch(window, h, w, UI_MAP_WALL);
+                } else {
+                    mvwaddch(window, h, w, UI_MAP_WALL_FOG);
+                }
+                
+                break;
+            default:
+                mvwaddch(window, h, w, UI_MAP_EMPTY);
+                break;
             }
         }
     }
