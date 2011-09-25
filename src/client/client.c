@@ -180,6 +180,13 @@ void event_player_position(struct msg *m)
     pthread_mutex_unlock(&player_mutex);
 }
 
+void event_enemy_position(struct msg *m)
+{
+    pthread_mutex_lock(&map_mutex);
+    map->objs[m->event.enemy_position.pos_y][m->event.enemy_position.pos_x] = MAP_PLAYER;
+    pthread_mutex_unlock(&map_mutex);
+}
+
 void event_walk(void)
 {
     struct msg msg;
@@ -315,7 +322,23 @@ void *queue_mngr_func(void *arg)
     struct msg *m;
     
     while(1) {
+        uint16_t w, h;
+        
         pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
+
+        if(map != NULL) {
+            pthread_mutex_lock(&map_mutex);
+            for(h = 0; h < map->height; h++) {
+                for(w = 0; w < map->width; w++) {
+                    uint8_t o = map->objs[h][w];
+                
+                    if(o == MAP_PLAYER || o == MAP_BULLET) {
+                        map->objs[h][w] = MAP_EMPTY;
+                    }
+                }
+            }
+            pthread_mutex_unlock(&map_mutex);
+        }
         
         while((m = msgqueue_pop(msgqueue)) != NULL) {
             /* TODO: just fucking do it!. */
@@ -341,6 +364,9 @@ void *queue_mngr_func(void *arg)
                 break;
             case MSGTYPE_PLAYER_POSITION:
                 event_player_position(m);
+                break;
+            case MSGTYPE_ENEMY_POSITION:
+                event_enemy_position(m);
                 break;
             default:
                 break;

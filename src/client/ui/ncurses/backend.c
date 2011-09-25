@@ -13,7 +13,8 @@
 #define UI_MAP_EMPTY ' '
 #define UI_MAP_WALL_FOG '#' | A_DIM | COLOR_PAIR(2)
 #define UI_MAP_WALL '#' | A_BOLD | COLOR_PAIR(1)
-#define UI_MAP_PLAYER '@' | A_BOLD
+#define UI_MAP_PLAYER '@' | A_BOLD | COLOR_PAIR(3)
+#define UI_MAP_ENEMY '@' | A_BOLD | COLOR_PAIR(4)
 
 WINDOW *window = NULL;
 struct screen screen;
@@ -134,16 +135,20 @@ static void ui_screen_update(void)
     } else {
         screen.offset_y = player->pos_y - screen.height / 2;
     }
+    
     /* TODO: dispatch and colorize. */
-
     for(h = 2, y = screen.offset_y; h < screen.height; h++, y++) {
         for(w = 1, x = screen.offset_x; w < screen.width + 1; w++, x++) {
-            mvwaddch(window, h, w, map->objs[y][x] | A_DIM);
+            if(map->objs[y][x] == MAP_PLAYER) {
+                mvwaddch(window, h, w, UI_MAP_ENEMY);
+            } else {
+                mvwaddch(window, h, w, map->objs[y][x] | A_DIM);
+            }
         }
     }
     
     mvwaddch(window, player->pos_y + 2 - screen.offset_y,
-             player->pos_x + 1 - screen.offset_x, UI_MAP_PLAYER | COLOR_PAIR(3));
+             player->pos_x + 1 - screen.offset_x, UI_MAP_PLAYER);
     
     pthread_mutex_unlock(&map_mutex);
     pthread_mutex_unlock(&player_mutex);
@@ -182,6 +187,7 @@ enum ui_enum_t ui_init(void)
     init_pair(1, COLOR_WHITE, COLOR_BLACK);
     init_pair(2, COLOR_CYAN, COLOR_BLACK);
     init_pair(3, COLOR_GREEN, COLOR_BLACK);
+    init_pair(4, COLOR_RED, COLOR_BLACK);
     
     curs_set(0); /* Invisible cursor */
     refresh();

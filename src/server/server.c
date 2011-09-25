@@ -200,6 +200,25 @@ void send_events(void)
     slot = players->root;
     while(slot != NULL) {
         struct player *p = slot->p;
+        struct players_slot *lslot = players->root;
+
+        while(lslot != NULL) {
+            struct player *lp = lslot->p;
+            struct msg m;
+
+            if(lp->pos_x >= p->pos_x - PLAYER_VIEWPORT_WIDTH / 2 &&
+               lp->pos_x <= p->pos_x + PLAYER_VIEWPORT_WIDTH / 2 &&
+               lp->pos_y >= p->pos_y - PLAYER_VIEWPORT_HEIGHT / 2 &&
+               lp->pos_y <= p->pos_y + PLAYER_VIEWPORT_HEIGHT / 2) {
+                p->seq++;
+                m.type = MSGTYPE_ENEMY_POSITION;
+                m.event.enemy_position.pos_x = lp->pos_x;
+                m.event.enemy_position.pos_y = lp->pos_y;
+                msg_batch_push(&(p->msgbatch), &m);
+            }
+
+            lslot = lslot->next;
+        }
         
         if(MSGBATCH_SIZE(&(p->msgbatch)) > 0) {
             sendto(sd, p->msgbatch.chunks, p->msgbatch.offset + 1,
@@ -346,9 +365,6 @@ void event_walk(struct msg_queue_node *qnode)
     py = p->pos_y;
     
     p->direction = qnode->data->event.walk.direction;
-    /* TODO: check collisions and if all seems good
-       change player's position and send event_player_position().
-    */
     
     switch(p->direction) {
     case DIRECTION_LEFT:
@@ -371,8 +387,6 @@ void event_walk(struct msg_queue_node *qnode)
         p->pos_x = px;
         p->pos_y = py;
     }
-
-    printf("p->pos_x: %d, p->pos_y = %d\n", p->pos_x, p->pos_y);
     
     p->seq++;
     msg.type = MSGTYPE_PLAYER_POSITION;

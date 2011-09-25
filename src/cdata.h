@@ -54,6 +54,7 @@ enum {
     //MSGTYPE_NONE = -1,
     MSGTYPE_WALK = 0,
     MSGTYPE_PLAYER_POSITION,
+    MSGTYPE_ENEMY_POSITION,
     MSGTYPE_SHOOT,
     MSGTYPE_CONNECT_ASK,
     MSGTYPE_CONNECT_OK,
@@ -68,6 +69,11 @@ struct msgtype_walk {
 };
 
 struct msgtype_player_position {
+    uint16_t pos_x;
+    uint16_t pos_y;
+};
+
+struct msgtype_enemy_position {
     uint16_t pos_x;
     uint16_t pos_y;
 };
@@ -119,6 +125,7 @@ struct msg {
     union {
         struct msgtype_walk walk;
         struct msgtype_player_position player_position;
+        struct msgtype_enemy_position enemy_position;
         struct msgtype_shoot shoot;
         struct msgtype_connect_ask connect_ask;
         struct msgtype_connect_ok connect_ok;

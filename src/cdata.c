@@ -60,6 +60,17 @@ static void msgtype_player_position_pack(struct msg *m, uint8_t *buf)
     buf += 2;
 }
 
+static void msgtype_enemy_position_pack(struct msg *m, uint8_t *buf)
+{
+    uint16_t pos_x = m->event.enemy_position.pos_x;
+    uint16_t pos_y = m->event.enemy_position.pos_y;
+
+    pack16_int(buf, htons(pos_x));
+    buf += 2;
+    pack16_int(buf, htons(pos_y));
+    buf += 2;
+}
+
 static void msgtype_shoot_pack(struct msg *m, uint8_t *buf)
 {
     *buf++ = m->event.shoot.gun_type;
@@ -112,6 +123,14 @@ static void msgtype_player_position_unpack(uint8_t *buf, struct msg *m)
     buf += 2;
 }
 
+static void msgtype_enemy_position_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.enemy_position.pos_x = ntohs(unpack16_int(buf));
+    buf += 2;
+    m->event.enemy_position.pos_y = ntohs(unpack16_int(buf));
+    buf += 2;
+}
+
 static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
 {
     m->event.shoot.gun_type = (uint8_t) *buf++;
@@ -157,6 +176,7 @@ static void msgtype_disconnect_notify_unpack(uint8_t *buf, struct msg *m)
 intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_walk_pack,
     (intptr_t) msgtype_player_position_pack,
+    (intptr_t) msgtype_enemy_position_pack,
     (intptr_t) msgtype_shoot_pack,
     (intptr_t) msgtype_connect_ask_pack,
     (intptr_t) msgtype_connect_ok_pack,
@@ -169,6 +189,7 @@ intptr_t msgtype_pack_funcs[] = {
 intptr_t msgtype_unpack_funcs[] = {
     (intptr_t) msgtype_walk_unpack,
     (intptr_t) msgtype_player_position_unpack,
+    (intptr_t) msgtype_enemy_position_unpack,
     (intptr_t) msgtype_shoot_unpack,
     (intptr_t) msgtype_connect_ask_unpack,
     (intptr_t) msgtype_connect_ok_unpack,
