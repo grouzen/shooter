@@ -1,0 +1,32 @@
+* SHOOTER
+
+** WHAT IS SHOOTER?  
+
+   2D network game for lazy admins and geeks which don't have 
+   X11 on their computers and servers. Also you can run shooter
+   on your FreeBSD firewall server and have fun!
+
+** COMPILING THE SHOOTER
+
+*** Compiling server
+    
+#+BEGIN_CODE
+    make server
+#+END_CODE
+   
+    OR
+    
+    With debug output
+#+BEGIN_CODE
+    make server -D_DEBUG_
+#+END_CODE
+
+*** Compiling client
+
+    There are several backends for UI like ncurses, SDL, etc.
+    You can compile with any backend which you want.
+
+#+BEGIN_CODE
+    make client_ncurses   # for ncurses backend
+    make client_sdl       # for SDL backend
+#+END_CODE
