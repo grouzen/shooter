@@ -17,6 +17,7 @@
 
 struct msg_queue *msgqueue = NULL;
 struct players_slots *players = NULL;
+struct bonuses *bonuses = NULL;
 pthread_mutex_t msgqueue_mutex;
 pthread_cond_t queue_mngr_cond;
 pthread_t recv_mngr_thread, queue_mngr_thread;
@@ -174,6 +175,7 @@ enum msg_queue_enum_t msgqueue_push(struct msg_queue *q, struct msg_queue_node *
 {
     if(q->top < MSGQUEUE_INIT_SIZE - 1) {
         q->top++;
+        
         memcpy(q->nodes[q->top]->addr, qnode->addr, sizeof(struct sockaddr_in));
         memcpy(q->nodes[q->top]->data, qnode->data, sizeof(struct msg));
         
@@ -192,6 +194,229 @@ struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
     return NULL;
 }
 
+enum bonuses_enum_t {
+    BONUSES_ERROR = 0,
+    BONUSES_OK
+};
+
+struct bonus {
+    uint8_t type;
+    uint8_t index;
+    uint16_t x;
+    uint16_t y;    
+};
+
+struct bonuses_node {
+    struct bonuses_node *next;
+    struct bonuses_node *prev;
+    struct bonus *b;
+};
+
+struct bonuses {
+    struct bonuses_node *root;
+    uint8_t count;
+};
+
+struct bonuses *bonuses_init(void)
+{
+    struct bonuses *bonuses;
+
+    bonuses = malloc(sizeof(struct bonuses));
+    bonuses->root = NULL;
+    bonuses->count = 0;
+
+    return bonuses;
+}
+
+void bonuses_free(struct bonuses *bonuses)
+{
+    struct bonuses_node *cbonus, *nbonus;
+
+    nbonus = bonuses->root;
+    
+    while(nbonus != NULL) {
+        cbonus = nbonus;
+        nbonus = nbonus->next;
+
+        free(cbonus->b);
+        free(cbonus);
+    }
+
+    free(bonuses);
+}
+
+struct bonus *bonuses_search(struct bonuses *bonuses, uint16_t x, uint16_t y)
+{
+    struct bonuses_node *bonus = bonuses->root;
+
+    while(bonus != NULL) {
+        struct bonus *b = bonus->b;
+
+        if(b->x == x && b->y == y) {
+            return b;
+        }
+
+        bonus = bonus->next;
+    }
+
+    return NULL;
+}
+
+struct bonus *bonuses_add(struct bonuses *bonuses, struct bonus *b)
+{
+    struct bonuses_node *bonus = bonuses->root;
+    struct bonuses_node *pbonus = NULL;
+
+    for(;;) {
+        if(bonus == NULL) {
+            bonus = malloc(sizeof(struct bonuses_node));
+            bonus->prev = pbonus;
+            bonus->next = NULL;
+            bonus->b = malloc(sizeof(struct bonus));
+            memcpy(bonus->b, b, sizeof(struct bonus));
+
+            break;
+        }
+
+        pbonus = bonus;
+        bonus = bonus->next;
+    }
+
+    return bonus->b;
+}
+
+enum bonuses_enum_t bonuses_remove(struct bonuses *bonuses, struct bonus *b)
+{
+    struct bonuses_node *bonus = bonuses->root;
+
+    while(bonus != NULL) {
+        if(bonus->b == b) {
+            struct bonuses_node *prev, *next;
+
+            prev = bonus->prev;
+            next = bonus->next;
+
+            prev->next = next;
+            next->prev = prev;
+
+            free(bonus->b);
+            free(bonus);
+
+            return BONUSES_OK;
+        }
+
+        bonus = bonus->next;
+    }
+
+    return BONUSES_ERROR;
+}
+
+void event_enemy_position(struct player *p, uint16_t x, uint16_t y)
+{
+    struct msg msg;
+    
+    p->seq++;
+    
+    msg.type = MSGTYPE_ENEMY_POSITION;
+    msg.event.enemy_position.pos_x = x;
+    msg.event.enemy_position.pos_y = y;
+    msg_batch_push(&(p->msgbatch), &msg);
+}
+
+void event_player_position(struct player *p)
+{
+    struct msg msg;
+
+    p->seq++;
+    
+    msg.type = MSGTYPE_PLAYER_POSITION;
+    msg.event.player_position.pos_x = p->pos_x;
+    msg.event.player_position.pos_y = p->pos_y;
+    msg_batch_push(&(p->msgbatch), &msg);
+}
+
+void event_on_bonus(struct player *p, struct bonus *bonus)
+{
+    struct msg msg;
+    
+    p->seq++;
+    
+    msg.type = MSGTYPE_ON_BONUS;
+    msg.event.on_bonus.type = bonus->type;
+    msg.event.on_bonus.index = bonus->index;
+    msg_batch_push(&(p->msgbatch), &msg);
+}
+
+void event_disconnect_server(void)
+{
+    struct players_slot *slot = players->root;
+    struct msg msg;
+
+    msg.type = MSGTYPE_DISCONNECT_SERVER;
+    msg.event.disconnect_server.stub = 1;
+    
+    while(slot != NULL) {
+        struct player *p = slot->p;
+
+        p->seq++;
+        msg_batch_push(&(p->msgbatch), &msg);
+        
+        slot = slot->next;
+    }
+}
+
+void event_disconnect_notify(uint8_t *nick)
+{
+    struct msg msg;
+    struct players_slot *slot = players->root;
+    
+    msg.type = MSGTYPE_DISCONNECT_NOTIFY;
+    strncpy((char *) msg.event.disconnect_notify.nick, (char *) nick, NICK_MAX_LEN);    
+    
+    slot = players->root;
+    while(slot != NULL) {
+        struct player *p = slot->p;
+        
+        p->seq++;
+        msg_batch_push(&(p->msgbatch), &msg);
+        
+        slot = slot->next;
+    }
+}
+
+void event_connect_notify(struct player *p)
+{
+    struct msg msg;
+    struct players_slot *slot = players->root;
+    
+    msg.type = MSGTYPE_CONNECT_NOTIFY;
+    strncpy((char *) msg.event.connect_notify.nick, (char *) p->nick, NICK_MAX_LEN);
+    
+    while(slot != NULL) {
+        struct player *lp = slot->p;
+            
+        if(lp != p) {
+            lp->seq++;
+            msg_batch_push(&(lp->msgbatch), &msg);
+        }
+            
+        slot = slot->next;
+    }
+}
+
+void event_connect_ok(struct player *p, uint8_t ok)
+{
+    struct msg msg;
+    
+    p->seq++;
+
+    msg.type = MSGTYPE_CONNECT_OK;
+    msg.event.connect_ok.id = p->id;
+    msg.event.connect_ok.ok = ok;
+    strncpy((char *) msg.event.connect_ok.mapname, (char *) map->name, MAP_NAME_MAX_LEN);
+    msg_batch_push(&(p->msgbatch), &msg);
+}
+
 void send_events(void)
 {
     struct players_slot *slot = players->root;
@@ -207,11 +432,7 @@ void send_events(void)
             struct msg m;
 
             if(IN_PLAYER_VIEWPORT(lp->pos_x, lp->pos_y, p->pos_x, p->pos_y)) {
-                p->seq++;
-                m.type = MSGTYPE_ENEMY_POSITION;
-                m.event.enemy_position.pos_x = lp->pos_x;
-                m.event.enemy_position.pos_y = lp->pos_y;
-                msg_batch_push(&(p->msgbatch), &m);
+                event_enemy_position(p, lp->pos_x, lp->pos_y);
             }
 
             lslot = lslot->next;
@@ -234,40 +455,13 @@ void send_events(void)
         
 }
 
-void event_disconnect_server(void)
-{
-    struct players_slot *slot = players->root;
-    struct msg msg;
-
-    msg.type = MSGTYPE_DISCONNECT_SERVER;
-    msg.event.disconnect_server.stub = 1;
-    
-    while(slot != NULL) {
-        struct player *p = slot->p;
-
-        p->seq++;
-        msg_batch_push(&(p->msgbatch), &msg);
-        
-        slot = slot->next;
-    }
-}
-
-void event_on_bonus(struct player *p, struct bonus *b)
-{
-
-}
-
 void event_disconnect_client(struct msg_queue_node *qnode)
 {
-    struct players_slot *slot;
-    struct msg msg;
-
-    msg.type = MSGTYPE_DISCONNECT_NOTIFY;
+    uint8_t nick[NICK_MAX_LEN];
 
     /* Copy nick of the disconnected player. */
     if(players->slots[qnode->data->header.id] != NULL) {
-        strncpy((char *) msg.event.disconnect_notify.nick,
-                (char *) players->slots[qnode->data->header.id]->p->nick, NICK_MAX_LEN);
+        strncpy((char *) nick, (char *) players->slots[qnode->data->header.id]->p->nick, NICK_MAX_LEN);
     }
 
     if(players_release(players, qnode->data->header.id) == PLAYERS_ERROR) {
@@ -275,90 +469,68 @@ void event_disconnect_client(struct msg_queue_node *qnode)
         return;
     }
 
-    INFO("Player has been disconnected: %s\n", msg.event.disconnect_notify.nick);
-    
-    slot = players->root;
-    while(slot != NULL) {
-        struct player *p = slot->p;
+    INFO("Player has been disconnected: %s\n", nick);
 
-        p->seq++;
-        msg_batch_push(&(p->msgbatch), &msg);
-        
-        slot = slot->next;
-    }
+    event_disconnect_notify(nick);    
 }
 
 void event_connect_ask(struct msg_queue_node *qnode)
 {
     struct player player;
     struct player *newplayer;
-    struct msg msg;
     
     player.addr = qnode->addr;
     player.nick = qnode->data->event.connect_ask.nick;
 
-    /* We will send MSGTYPE_CONNECT_OK message's type to the client. */
-    msg.type = MSGTYPE_CONNECT_OK;
     newplayer = players_occupy(players, &player);
     
     if(newplayer == NULL) {
+        struct msg msg;
         struct msg_batch msgbatch;
         
         INFO("There are no free slots. Server maintains maximum %u players\n", MAX_PLAYERS);
 
+        msg.type = MSGTYPE_CONNECT_OK;
         msg.event.connect_ok.ok = 0;
 
         memset(&msgbatch, 0, sizeof(struct msg_batch));
         msg_batch_push(&msgbatch, &msg);
+        
         sendto(sd, msgbatch.chunks, msgbatch.offset + 1,
                0, (struct sockaddr *) qnode->addr, sizeof(struct sockaddr_in));
     } else {
-        struct players_slot *slot = players->root;
         struct map_respawn *respawn;
+        struct bonus bonus = {
+            .type = BONUSTYPE_WEAPON,
+            .index = BONUS_WEAPON_GUN,
+            .x = 0,
+            .y = 0
+        };
         
         INFO("Player has been connected with nick: %s, total players: %u\n",
              newplayer->nick, players->count);
         
-        /* Push to the new player. */
-        newplayer->seq++;
-        msg.event.connect_ok.id = newplayer->id;
-        msg.event.connect_ok.ok = 1;
-        strncpy((char *) msg.event.connect_ok.mapname, (char *) map->name, MAP_NAME_MAX_LEN);
-        msg_batch_push(&(newplayer->msgbatch), &msg);
-
-        newplayer->seq++;
-        msg.type = MSGTYPE_PLAYER_POSITION;
-
+        /* Connect new player. */
+        event_connect_ok(newplayer, 1);
+        
         /* Get random respawn point. */
         srand((unsigned int) time(NULL));
         respawn = &(map->respawns[0 + rand() % map->respawns_count]);
         newplayer->pos_x = respawn->w;
         newplayer->pos_y = respawn->h;
         
-        msg.event.player_position.pos_x = newplayer->pos_x;
-        msg.event.player_position.pos_y = newplayer->pos_y;
-        msg_batch_push(&(newplayer->msgbatch), &msg);
+        event_player_position(newplayer);
         
-        /* Notify rest players about new player's connection. */
-        memset(&msg, 0, sizeof(struct msg));
-        msg.type = MSGTYPE_CONNECT_NOTIFY;
-        strncpy((char *) msg.event.connect_notify.nick, (char *) newplayer->nick, NICK_MAX_LEN);
-        while(slot != NULL) {
-            struct player *p = slot->p;
-            
-            if(p != newplayer) {
-                p->seq++;
-                msg_batch_push(&(p->msgbatch), &msg);
-            }
-            
-            slot = slot->next;
-        }
+        /* Give to the player the weapon. */
+        event_on_bonus(newplayer, &bonus);
+        
+        /* Notify rest players about new player. */
+        event_connect_notify(newplayer);
     }
 }
 
 void event_walk(struct msg_queue_node *qnode)
 {
-    struct msg msg;
     struct player *p = players->slots[qnode->data->header.id]->p;
     uint16_t px, py;
     uint8_t direction;
@@ -392,11 +564,8 @@ void event_walk(struct msg_queue_node *qnode)
         p->direction = direction;
     }
 
-    p->seq++;
-    msg.type = MSGTYPE_PLAYER_POSITION;
-    msg.event.player_position.pos_x = p->pos_x;
-    msg.event.player_position.pos_y = p->pos_y;
-    msg_batch_push(&(p->msgbatch), &msg);
+    event_player_position(p);
+    
 }
 
 /* This thread must do the only one thing - recieves
@@ -490,6 +659,7 @@ void quit(int signum)
     map_unload(map);
     msgqueue_free(msgqueue);
     players_free(players);
+    bonuses_free(bonuses);
     pthread_attr_destroy(&common_attr);
     pthread_mutex_destroy(&msgqueue_mutex);
     pthread_cond_destroy(&queue_mngr_cond);
@@ -517,6 +687,7 @@ int main(int argc, char **argv)
     }
     msgqueue = msgqueue_init();
     players = players_init();
+    bonuses = bonuses_init();
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;

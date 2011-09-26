@@ -13,10 +13,7 @@
 #+BEGIN_EXAMPLE
     make server
 #+END_EXAMPLE
-   
-    OR
-    
-    With debug output
+    or with debug output
 #+BEGIN_EXAMPLE
     make server -D_DEBUG_
 #+END_EXAMPLE
@@ -29,4 +26,19 @@
 #+BEGIN_EXAMPLE
     make client_ncurses   # for ncurses backend
     make client_sdl       # for SDL backend
+#+END_EXAMPLE
+
+** RUN THE SHOOTER
+
+*** Server
+
+#+BEGIN_EXAMPLE
+    ./shooterd [OPTIONS]
+#+END_EXAMPLE
+
+*** Client
+
+#+BEGIN_EXAMPLE
+    ./shooter_ncurses
+    ./shooter_sdl
 #+END_EXAMPLE

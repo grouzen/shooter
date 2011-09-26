@@ -172,6 +172,24 @@ void event_disconnect_server(struct msg *m)
     quit(1);
 }
 
+void event_on_bonus(struct msg *m)
+{
+    uint8_t type = m->event.on_bonus.type;
+    uint8_t index = m->event.on_bonus.index;
+    
+    switch(type) {
+    case BONUSTYPE_WEAPON:
+        pthread_mutex_lock(&player_mutex);
+        player->weapons.slots[index] = 1;
+        player->weapons.bullets[index] = weapons[index].bullets_count;
+        pthread_mutex_unlock(&player_mutex);
+
+        break;
+    default:
+        break;
+    }
+}
+
 void event_player_position(struct msg *m)
 {
     pthread_mutex_lock(&player_mutex);
@@ -315,6 +333,7 @@ void *recv_mngr_func(void *arg)
         pthread_mutex_unlock(&msgqueue_mutex);
     }
 
+    return arg;
 }
 
 void *queue_mngr_func(void *arg)
@@ -368,6 +387,9 @@ void *queue_mngr_func(void *arg)
                 break;
             case MSGTYPE_ENEMY_POSITION:
                 event_enemy_position(m);
+                break;
+            case MSGTYPE_ON_BONUS:
+                event_on_bonus(m);
                 break;
             default:
                 break;

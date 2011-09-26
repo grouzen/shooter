@@ -12,21 +12,21 @@
 
 /* Bonuses. */
 struct weapon weapons[WEAPON_SLOTS_MAX] = {
-    /*   NAME   SNAME   DMAX   DMIN   BSPEED   BDIST   BCOUNT */
-    {   "gun",   'G',    20,     5,      0,      0,     100   },
-    {  "rocket", 'R',    90,    40,      3,     40,      10   }
+    /*   NAME         INDEX           DMAX   DMIN   BSPEED   BDIST   BCOUNT */
+    {   "gun",   BONUS_WEAPON_GUN,     20,     5,      0,      0,     100   },
+    {  "rocket", BONUS_WEAPON_ROCKET,  90,    40,      3,     40,      10   }
 };
 
 struct health healths[] = {
-    /*  NAME    SNAME   HP */
-    {  "hbig",   'H',  100 },
-    {  "hsmall", 'h',   50 }
+    /*  NAME          INDEX           HP */
+    {  "hbig",   BONUS_HEALTH_BIG,   100 },
+    {  "hsmall", BONUS_HEALTH_SMALL,  50 }
 };
 
 struct armor armors[] = {
-    /* NAME     SNAME  ARMOR */
-    { "aheavy",  'A',   100  },
-    { "alight",  'a',    50  }
+    /* NAME            INDEX         ARMOR */
+    { "aheavy",  BONUS_ARMOR_HEAVY,   100  },
+    { "alight",  BONUS_ARMOR_LIGHT,    50  }
 };
 
 /* TODO: pack_float(). */
@@ -123,6 +123,12 @@ static void msgtype_disconnect_notify_pack(struct msg *m, uint8_t *buf)
     strncpy((char *) buf, (char *) m->event.disconnect_notify.nick, NICK_MAX_LEN);
 }
 
+static void msgtype_on_bonus_pack(struct msg *m, uint8_t *buf)
+{
+    *buf++ = m->event.on_bonus.type;
+    *buf++ = m->event.on_bonus.index;
+}
+
 /* ... and for unpacking. */
 static void msgtype_walk_unpack(uint8_t *buf, struct msg *m)
 {
@@ -183,6 +189,12 @@ static void msgtype_disconnect_notify_unpack(uint8_t *buf, struct msg *m)
     strncpy((char *) m->event.disconnect_notify.nick, (char *) buf, NICK_MAX_LEN);
 }
 
+static void msgtype_on_bonus_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.on_bonus.type = (uint8_t) *buf++;
+    m->event.on_bonus.index = (uint8_t) *buf++;
+}
+
 /* Because I hate switches and all these condition statements
  * I prefer to use calls table. They must be synced with enum
  * declared in cdata.h.
@@ -197,7 +209,8 @@ intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_connect_notify_pack,
     (intptr_t) msgtype_disconnect_server_pack,
     (intptr_t) msgtype_disconnect_client_pack,
-    (intptr_t) msgtype_disconnect_notify_pack
+    (intptr_t) msgtype_disconnect_notify_pack,
+    (intptr_t) msgtype_on_bonus_pack
 };
 
 intptr_t msgtype_unpack_funcs[] = {
@@ -210,7 +223,8 @@ intptr_t msgtype_unpack_funcs[] = {
     (intptr_t) msgtype_connect_notify_unpack,
     (intptr_t) msgtype_disconnect_server_unpack,
     (intptr_t) msgtype_disconnect_client_unpack,
-    (intptr_t) msgtype_disconnect_notify_unpack
+    (intptr_t) msgtype_disconnect_notify_unpack,
+    (intptr_t) msgtype_on_bonus_unpack
 };
 
 /* General packing/unpacking functions. */

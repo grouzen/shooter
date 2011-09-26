@@ -9,8 +9,7 @@
         printf("[ DEBUG ]: " format, ##__VA_ARGS__);    \
     } while(0)
 #else
-#define DEBUG(format, ...)                      \
-    do { } while(0)
+#define DEBUG(format, ...) do { } while(0)
 #endif
 
 #define INFO(format, ...)                                        \
@@ -28,6 +27,8 @@
  */
 #define PLAYER_VIEWPORT_WIDTH 21
 #define PLAYER_VIEWPORT_HEIGHT 21
+
+#define NICK_MAX_LEN 16
 
 #define IN_PLAYER_VIEWPORT(x, y, px, py)            \
     ((x) >= (px) - PLAYER_VIEWPORT_WIDTH / 2 &&     \
@@ -88,7 +89,8 @@ enum {
     MSGTYPE_CONNECT_NOTIFY,
     MSGTYPE_DISCONNECT_SERVER,
     MSGTYPE_DISCONNECT_CLIENT,
-    MSGTYPE_DISCONNECT_NOTIFY
+    MSGTYPE_DISCONNECT_NOTIFY,
+    MSGTYPE_ON_BONUS
 };
 
 struct msgtype_walk {
@@ -108,8 +110,6 @@ struct msgtype_enemy_position {
 struct msgtype_shoot {
     uint8_t gun_type;
 };
-
-#define NICK_MAX_LEN 16
 
 struct msgtype_connect_ask {
     uint8_t nick[NICK_MAX_LEN]; // null-terminated.
@@ -138,6 +138,11 @@ struct msgtype_disconnect_notify {
     uint8_t nick[NICK_MAX_LEN];
 };
 
+struct msgtype_on_bonus {
+    uint8_t type;
+    uint8_t index;
+};
+
 /*
  * General message structures
  */
@@ -160,6 +165,7 @@ struct msg {
         struct msgtype_disconnect_server disconnect_server;
         struct msgtype_disconnect_client disconnect_client;
         struct msgtype_disconnect_notify disconnect_notify;
+        struct msgtype_on_bonus on_bonus;
     } event;
 };
 
@@ -199,16 +205,16 @@ enum {
     BONUSTYPE_ARMOR
 };
 
-struct bonus {
-    uint8_t type;
-    uint8_t index;
-};
-
 #define HEALTH_NAME_MAX_LEN 8
+
+enum {
+    BONUS_HEALTH_BIG = 0,
+    BONUS_HEALTH_SMALL
+};
 
 struct health {
     uint8_t name[HEALTH_NAME_MAX_LEN];
-    uint8_t short_name;
+    uint8_t index;
     uint16_t hp;
 };
 
@@ -216,9 +222,14 @@ extern struct health healths[];
 
 #define ARMOR_NAME_MAX_LEN 8
 
+enum {
+    BONUS_ARMOR_HEAVY = 0,
+    BONUS_ARMOR_LIGHT
+};
+
 struct armor {
     uint8_t name[ARMOR_NAME_MAX_LEN];
-    uint8_t short_name;
+    uint8_t index;
     uint16_t armor;
 };
 
@@ -226,9 +237,14 @@ extern struct armor armors[];
 
 #define WEAPON_NAME_MAX_LEN 8
 
+enum {
+    BONUS_WEAPON_GUN = 0,
+    BONUS_WEAPON_ROCKET
+};
+
 struct weapon {
     uint8_t name[WEAPON_NAME_MAX_LEN];
-    uint8_t short_name;
+    uint8_t index;
     uint8_t damage_max;
     uint8_t damage_min;
     uint8_t bullets_speed;
