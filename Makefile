@@ -1,7 +1,7 @@
-server_target = server
-clients_target = client_ncurses client_sdl
-client_ncurses_target = client_ncurses
-client_sdl_target = client_sdl
+server_target = shooterd
+clients_target = shooter_ncurses shooter_sdl
+client_ncurses_target = shooter_ncurses
+client_sdl_target = shooter_sdl
 
 srcdir = src
 server_srcdir = src/server
@@ -27,7 +27,7 @@ client_sdl_headers =
 #test_client_headers = src/client/ui/backend.h src/client/client.h
 
 LDFLAGS += -pthread
-CFLAGS += -Wall -Wextra -g
+CFLAGS += -Wall -Wextra -g -D_DEBUG_
 
 .PHONY: server clients client_ncurses client_sdl tests test_client clean
 

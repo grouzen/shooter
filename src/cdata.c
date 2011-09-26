@@ -10,9 +10,23 @@
 
 #include "cdata.h"
 
-struct weapon weapons[] = {
-    {"gun", 20, 5, 0, 0, 0},
-    {"rocket", 90, 40, 3, 40, 10}
+/* Bonuses. */
+struct weapon weapons[WEAPON_SLOTS_MAX] = {
+    /*   NAME   SNAME   DMAX   DMIN   BSPEED   BDIST   BCOUNT */
+    {   "gun",   'G',    20,     5,      0,      0,     100   },
+    {  "rocket", 'R',    90,    40,      3,     40,      10   }
+};
+
+struct health healths[] = {
+    /*  NAME    SNAME   HP */
+    {  "hbig",   'H',  100 },
+    {  "hsmall", 'h',   50 }
+};
+
+struct armor armors[] = {
+    /* NAME     SNAME  ARMOR */
+    { "aheavy",  'A',   100  },
+    { "alight",  'a',    50  }
 };
 
 /* TODO: pack_float(). */
@@ -305,8 +319,9 @@ struct player *player_init(void)
     p->addr = malloc(sizeof(struct sockaddr_in));
 #endif
     p->hp = 100;
-    
+
     return p;
+    
 }
 
 void player_free(struct player *p)
@@ -335,16 +350,18 @@ struct map *map_load(uint8_t *name)
         return NULL;
 #elif _CLIENT_
         /* If map doesn't exist try to load it.
-           When map loaded, msgqueue_mngr_func() calls
-           map_load() and than loading is finished.
-        */
+         * When map loaded, msgqueue_mngr_func() calls
+         * map_load() and than loading is finished.
+         */
+        
         /* Recieved map dump into `path`. */
         return NULL; // TODO: remove it.
 #endif
     }
 
     /* Determine size of a map and load it.
-       This algorithm I took from my project `snake-sdl` ;^). */
+     * This algorithm I took from my project `snake-sdl` ;^).
+     */
     while((c = getc(fmap)) != '\n') {
         m->width++;
     }
@@ -437,9 +454,9 @@ enum collision_enum_t collision_check_player(struct player *p,
                                              struct players_slots *s)
 #elif _CLIENT_
 /* On client we need check only MAP_WALL and MAP_PLAYER cases,
-   because on other cases we can put player point on bullet or bonus
-   and anything terrible doesn't happen.
-*/
+ * because on other cases we can put player point on bullet or bonus
+ * and anything terrible doesn't happen.
+ */
 enum collision_enum_t collision_check_player(struct player *p, struct map *m)
 #endif
 {

@@ -252,6 +252,11 @@ void event_disconnect_server(void)
     }
 }
 
+void event_on_bonus(struct player *p, struct bonus *b)
+{
+
+}
+
 void event_disconnect_client(struct msg_queue_node *qnode)
 {
     struct players_slot *slot;
@@ -266,13 +271,12 @@ void event_disconnect_client(struct msg_queue_node *qnode)
     }
 
     if(players_release(players, qnode->data->header.id) == PLAYERS_ERROR) {
-        printf("Couldn't remove the player from slots: %u\n", qnode->data->header.id);        
+        INFO("Couldn't remove the player from slots: %u\n", qnode->data->header.id);
         return;
     }
 
-    printf("Player has been disconnected: %s\n", msg.event.disconnect_notify.nick);
+    INFO("Player has been disconnected: %s\n", msg.event.disconnect_notify.nick);
     
-
     slot = players->root;
     while(slot != NULL) {
         struct player *p = slot->p;
@@ -300,7 +304,7 @@ void event_connect_ask(struct msg_queue_node *qnode)
     if(newplayer == NULL) {
         struct msg_batch msgbatch;
         
-        printf("There are no free slots. Server maintains maximum %u players\n", MAX_PLAYERS);
+        INFO("There are no free slots. Server maintains maximum %u players\n", MAX_PLAYERS);
 
         msg.event.connect_ok.ok = 0;
 
@@ -312,8 +316,8 @@ void event_connect_ask(struct msg_queue_node *qnode)
         struct players_slot *slot = players->root;
         struct map_respawn *respawn;
         
-        printf("Player has been connected with nick: %s, total players: %u\n",
-               newplayer->nick, players->count);
+        INFO("Player has been connected with nick: %s, total players: %u\n",
+             newplayer->nick, players->count);
         
         /* Push to the new player. */
         newplayer->seq++;
@@ -357,9 +361,11 @@ void event_walk(struct msg_queue_node *qnode)
     struct msg msg;
     struct player *p = players->slots[qnode->data->header.id]->p;
     uint16_t px, py;
+    uint8_t direction;
 
     px = p->pos_x;
     py = p->pos_y;
+    direction = p->direction;
     
     p->direction = qnode->data->event.walk.direction;
     
@@ -383,8 +389,9 @@ void event_walk(struct msg_queue_node *qnode)
     if(collision_check_player(p, map, players) != COLLISION_NONE) {
         p->pos_x = px;
         p->pos_y = py;
+        p->direction = direction;
     }
-    
+
     p->seq++;
     msg.type = MSGTYPE_PLAYER_POSITION;
     msg.event.player_position.pos_x = p->pos_x;
@@ -425,7 +432,7 @@ void *recv_mngr_func(void *arg)
         qnode->addr = &client_addr;
         pthread_mutex_lock(&msgqueue_mutex);
         if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
-            fprintf(stderr, "server: msgqueue_push: couldn't push data into queue.\n");
+            INFO("server: msgqueue_push: couldn't push data into queue.\n");
         }
         pthread_mutex_unlock(&msgqueue_mutex);
     }
@@ -455,7 +462,7 @@ void *queue_mngr_func(void *arg)
                 event_walk(qnode);
                 break;
             default:
-                printf("Unknown event\n");
+                INFO("Unknown event\n");
                 break;
             }
         }
@@ -505,7 +512,7 @@ int main(int argc, char **argv)
     /* TODO: from config or args. */
     map = map_load((uint8_t *) "maze.map");
     if(map == NULL) {
-        printf("Map couldn't be loaded: %s.\n", "maze.map");
+        INFO("Map couldn't be loaded: %s.\n", "maze.map");
         exit(EXIT_FAILURE);
     }
     msgqueue = msgqueue_init();

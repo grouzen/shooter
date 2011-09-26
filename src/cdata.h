@@ -3,6 +3,26 @@
 
 #include <stdint.h>
 
+#ifdef _DEBUG_
+#define DEBUG(format, ...)                              \
+    do {                                                \
+        printf("[ DEBUG ]: " format, ##__VA_ARGS__);    \
+    } while(0)
+#else
+#define DEBUG(format, ...)                      \
+    do { } while(0)
+#endif
+
+#define INFO(format, ...)                                        \
+    do {                                                         \
+        printf("[ INFO ]: " format, ##__VA_ARGS__);              \
+    } while(0)
+
+#define WARN(format, ...)                                        \
+    do {                                                         \
+        fprintf(stderr, "[ WARN ]: " format, ##__VA_ARGS__);     \
+    } while(0)
+
 /* Must be less than 25 because terminal's geometry is 80x25
  * minus status lines on top and bottom of screen.
  */
@@ -164,24 +184,56 @@ enum msg_batch_enum_t {
 struct msg_batch {
     uint8_t chunks[MSGBATCH_BYTES];
     /* offset describes current offset in bytes
-       from the beginning of the chunks array
-       without first byte which describes number
-       of occupied chunks.
-    */
+     * from the beginning of the chunks array
+     * without first byte which describes number
+     * of occupied chunks.
+     */
     uint16_t offset;
 };
 
 #define MSGBATCH_SIZE(b) ((b)->chunks[0])
 
+enum {
+    BONUSTYPE_WEAPON = 0,
+    BONUSTYPE_HEALTH,
+    BONUSTYPE_ARMOR
+};
+
+struct bonus {
+    uint8_t type;
+    uint8_t index;
+};
+
+#define HEALTH_NAME_MAX_LEN 8
+
+struct health {
+    uint8_t name[HEALTH_NAME_MAX_LEN];
+    uint8_t short_name;
+    uint16_t hp;
+};
+
+extern struct health healths[];
+
+#define ARMOR_NAME_MAX_LEN 8
+
+struct armor {
+    uint8_t name[ARMOR_NAME_MAX_LEN];
+    uint8_t short_name;
+    uint16_t armor;
+};
+
+extern struct armor armors[];
+
 #define WEAPON_NAME_MAX_LEN 8
 
 struct weapon {
     uint8_t name[WEAPON_NAME_MAX_LEN];
+    uint8_t short_name;
     uint8_t damage_max;
     uint8_t damage_min;
-    uint8_t bullet_speed;
-    uint8_t bullet_distance;
-    uint8_t bullet_count;
+    uint8_t bullets_speed;
+    uint8_t bullets_distance;
+    uint16_t bullets_count;
 };
 
 #define WEAPON_SLOTS_MAX 9
@@ -190,7 +242,7 @@ struct weapon_slots {
     /* Bit array where 1 means that weapon exists. */
     uint8_t slots[WEAPON_SLOTS_MAX];
     /* Number of bullets for each weapon. */
-    uint8_t bullets[WEAPON_SLOTS_MAX];
+    uint16_t bullets[WEAPON_SLOTS_MAX];
     /* Selected weapon. */
     uint8_t current;
 };
