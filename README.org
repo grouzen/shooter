@@ -10,23 +10,23 @@
 
 *** Compiling server
     
-#+BEGIN_CODE
+#+BEGIN_EXAMPLE
     make server
-#+END_CODE
+#+END_EXAMPLE
    
     OR
     
     With debug output
-#+BEGIN_CODE
+#+BEGIN_EXAMPLE
     make server -D_DEBUG_
-#+END_CODE
+#+END_EXAMPLE
 
 *** Compiling client
 
     There are several backends for UI like ncurses, SDL, etc.
     You can compile with any backend which you want.
 
-#+BEGIN_CODE
+#+BEGIN_EXAMPLE
     make client_ncurses   # for ncurses backend
     make client_sdl       # for SDL backend
-#+END_CODE
+#+END_EXAMPLE
