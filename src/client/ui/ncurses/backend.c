@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdarg.h> /* va_arg */
 #include <pthread.h>
 
 #include "../../../cdata.h"
@@ -21,15 +22,15 @@ struct screen screen;
 uint8_t notify_line_history[NOTIFY_LINE_HISTORY_MAX][NOTIFY_LINE_MAX_LEN];
 pthread_mutex_t ui_event_mutex, ui_refresh_mutex;
 
-/* The abstraction for getting
-   and setting pressed keys.
-*/
+/* The abstraction for getting and setting pressed keys. */
+
 #define EVENT_MAX_LEN 16
+
 /* One event can contain several pressed keys.
-   This is necessary for example:
-   - for diagonal movement;
-   - etc.
-*/
+ * This is necessary for example:
+ *  - for diagonal movement;
+ *  - etc.
+ */
 struct ui_event {
     int keys[EVENT_MAX_LEN];
     int last;
@@ -89,16 +90,21 @@ int ui_get_event(void)
     }
 }
 
-/* TODO: dbehavior like printf(). */
-void ui_notify_line_set(uint8_t *l)
+void ui_notify_line_set(char *format, ...)
 {
+    va_list ap;
+    char line[NOTIFY_LINE_MAX_LEN];
     int i;
 
+    va_start(ap, format);
+    vsnprintf(line, NOTIFY_LINE_MAX_LEN, format, ap);
+    va_end(ap);
+    
     for(i = 0; i < NOTIFY_LINE_HISTORY_MAX - 1; i++) {
         strncpy((char *) notify_line_history[i + 1], (char *) notify_line_history[i], NOTIFY_LINE_MAX_LEN);
     }
 
-    strncpy((char *) notify_line_history[0], (char *) l, NOTIFY_LINE_MAX_LEN);
+    strncpy((char *) notify_line_history[0], line, NOTIFY_LINE_MAX_LEN);
 }
 
 static void ui_notify_line_update(void)
@@ -110,6 +116,27 @@ static void ui_notify_line_update(void)
     }
 
     mvwaddstr(window, screen.height, 2, (char *) notify_line_history[0]);
+}
+
+static void ui_status_line_update(void)
+{
+    int x;
+    char line[screen.width];
+
+    snprintf(line, screen.width,
+             "hp: %u ar: %u cw: %s   g: %u r: %u",
+             player->hp,
+             player->armor,
+             weapons[player->weapons.current].name,
+             player->weapons.bullets[BONUS_WEAPON_GUN],
+             player->weapons.bullets[BONUS_WEAPON_ROCKET]
+             );
+
+    for(x = 2; x < screen.width; x++) {
+        mvwaddch(window, 1, x, ' ');
+    }
+
+    mvwaddstr(window, 1, 2, line);
 }
 
 static void ui_screen_update(void)
@@ -170,9 +197,12 @@ static void ui_screen_update(void)
 void ui_refresh(void)
 {
     pthread_mutex_lock(&ui_refresh_mutex);
+    
     ui_notify_line_update();
+    ui_status_line_update();
     ui_screen_update();
     wrefresh(window);
+    
     pthread_mutex_unlock(&ui_refresh_mutex);
 }
         

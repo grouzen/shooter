@@ -112,7 +112,6 @@ void event_connect_ask(void)
 
 void event_connect_ok(struct msg *m)
 {
-    char nl[NOTIFY_LINE_MAX_LEN];
     uint8_t *mapname = m->event.connect_ok.mapname;
     
     if(m->event.connect_ok.ok) {
@@ -120,13 +119,12 @@ void event_connect_ok(struct msg *m)
         map = map_load(mapname);
         pthread_mutex_unlock(&map_mutex);
         if(map == NULL) {
-            printf("Map couldn't be loaded: %s. Trying to load it from server...\n", mapname);
+            WARN("Map couldn't be loaded: %s. Trying to load it from server...\n", mapname);
             /* TODO: call event_map_load_ask() which calls map_load(). */
             quit(1);
         }
         
-        snprintf(nl, NOTIFY_LINE_MAX_LEN, "Connected with id: %u, map: %s.", m->event.connect_ok.id, mapname);
-        ui_notify_line_set((uint8_t *) nl);
+        ui_notify_line_set("Connected with id: %u, map: %s.", m->event.connect_ok.id, (char *) mapname);
         
         pthread_mutex_lock(&player_mutex);
         player->id = m->event.connect_ok.id;
@@ -135,37 +133,25 @@ void event_connect_ok(struct msg *m)
         /* TODO: move this call to event_map_load_finish() for example. */
         pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
     } else {
-        snprintf(nl, NOTIFY_LINE_MAX_LEN, "Connection failed.");
-        ui_notify_line_set((uint8_t *) nl);
+        ui_notify_line_set("Connection failed.");
     }
-    
-    //ui_notify_line_set((uint8_t *) nl);
 }
 
 void event_connect_notify(struct msg *m)
 {
-    char nl[NOTIFY_LINE_MAX_LEN];
-
-    snprintf(nl, NOTIFY_LINE_MAX_LEN, "New player has been connected with nick: %s.",
-             m->event.connect_notify.nick);
-    ui_notify_line_set((uint8_t *) nl);
+    ui_notify_line_set("New player has been connected with nick: %s.",
+                       m->event.connect_notify.nick);
 }
 
 void event_disconnect_notify(struct msg *m)
 {
-    char nl[NOTIFY_LINE_MAX_LEN];
-
-    snprintf(nl, NOTIFY_LINE_MAX_LEN, "Player has been disconnected: %s.",
-             m->event.disconnect_notify.nick);
-    ui_notify_line_set((uint8_t *) nl);
+    ui_notify_line_set("Player has been disconnected: %s.",
+                       m->event.disconnect_notify.nick);
 }
 
 void event_disconnect_server(struct msg *m)
 {
-    char nl[NOTIFY_LINE_MAX_LEN];
-    
-    snprintf(nl, NOTIFY_LINE_MAX_LEN, "Server has been halted. Disconnecting...");
-    ui_notify_line_set((uint8_t *) nl);
+    ui_notify_line_set("Server has been halted. Disconnecting...");
     ui_refresh();
     sleep(3);
     
@@ -285,7 +271,7 @@ void *ui_mngr_func(void *arg)
     pthread_create(&ui_event_mngr_thread, &common_attr, ui_event_mngr_func, NULL);
     
     if(ui_init() == UI_ERROR) {
-        fprintf(stderr, "UI couldn't init.\n");
+        WARN("UI couldn't init.\n");
     }
     
     quit(1);   
@@ -323,7 +309,7 @@ void *recv_mngr_func(void *arg)
             
             msg_unpack(chunk, &m);
             if(msgqueue_push(msgqueue, &m) == MSGQUEUE_ERROR) {
-                fprintf(stderr, "client: msgqueue_push: couldn't push data into queue.\n");
+                WARN("client: msgqueue_push: couldn't push data into queue.\n");
             } else {
                 pthread_mutex_lock(&player_mutex);
                 player->seq++;

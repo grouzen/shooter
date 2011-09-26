@@ -137,7 +137,7 @@ struct msg_queue_node {
 };
 
 struct msg_queue {
-    struct msg_queue_node *nodes[MSGQUEUE_INIT_SIZE];
+    struct msg_queue_node nodes[MSGQUEUE_INIT_SIZE];
     ssize_t top;
 };
 
@@ -147,12 +147,12 @@ struct msg_queue *msgqueue_init(void)
     int i;
 
     q = malloc(sizeof(struct msg_queue));
+    
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        q->nodes[i] = malloc(sizeof(struct msg_queue_node));
-        q->nodes[i]->data = malloc(sizeof(struct msg));
-        q->nodes[i]->addr = malloc(sizeof(struct sockaddr_in));
+        q->nodes[i].data = malloc(sizeof(struct msg));
+        q->nodes[i].addr = malloc(sizeof(struct sockaddr_in));
     }
-
+    
     q->top = -1;
 
     return q;
@@ -163,9 +163,8 @@ void msgqueue_free(struct msg_queue *q)
     int i;
 
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        free(q->nodes[i]->data);
-        free(q->nodes[i]->addr);
-        free(q->nodes[i]);
+        free(q->nodes[i].data);
+        free(q->nodes[i].addr);
     }
     
     free(q);
@@ -176,8 +175,8 @@ enum msg_queue_enum_t msgqueue_push(struct msg_queue *q, struct msg_queue_node *
     if(q->top < MSGQUEUE_INIT_SIZE - 1) {
         q->top++;
         
-        memcpy(q->nodes[q->top]->addr, qnode->addr, sizeof(struct sockaddr_in));
-        memcpy(q->nodes[q->top]->data, qnode->data, sizeof(struct msg));
+        memcpy(q->nodes[q->top].addr, qnode->addr, sizeof(struct sockaddr_in));
+        memcpy(q->nodes[q->top].data, qnode->data, sizeof(struct msg));
         
         return MSGQUEUE_OK;
     }
@@ -188,7 +187,7 @@ enum msg_queue_enum_t msgqueue_push(struct msg_queue *q, struct msg_queue_node *
 struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
 {
     if(q->top >= 0) {
-        return q->nodes[q->top--];
+        return &(q->nodes[q->top--]);
     }
 
     return NULL;

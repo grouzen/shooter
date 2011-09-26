@@ -283,7 +283,8 @@ struct player {
     uint8_t direction;
     uint16_t pos_x;
     uint16_t pos_y;
-    uint8_t hp;
+    uint16_t hp;
+    uint16_t armor;
     struct weapon_slots weapons;
 };
 

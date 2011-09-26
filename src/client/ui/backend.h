@@ -27,7 +27,7 @@ void ui_refresh(void);
 int ui_get_event(void);
 enum ui_enum_t ui_init(void);
 void ui_free(void);
-void ui_notify_line_set(uint8_t*);
+void ui_notify_line_set(char *format, ...);
 
 #define NOTIFY_LINE_HISTORY_MAX 8
 #define NOTIFY_LINE_MAX_LEN 64
