@@ -27,7 +27,7 @@ client_sdl_headers =
 #test_client_headers = src/client/ui/backend.h src/client/client.h
 
 LDFLAGS += -pthread
-CFLAGS += -Wall -Wextra -g -D_DEBUG_
+CFLAGS += -Wall -Wextra -g
 
 .PHONY: server clients client_ncurses client_sdl tests test_client clean
 

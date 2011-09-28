@@ -15,7 +15,9 @@
 #+END_EXAMPLE
     or with debug output
 #+BEGIN_EXAMPLE
-    make server -D_DEBUG_
+    make server CFLAGS="$CFLAGS -D_DEBUG_"
+    # or edit Makefile and add to macro CFLAGS -D_DEBUG_
+    CFLAGS += -Wall -Wextra -g -D_DEBUG_
 #+END_EXAMPLE
 
 *** Compiling client
