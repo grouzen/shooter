@@ -2,7 +2,7 @@
 
 ** WHAT IS SHOOTER?  
 
-   2D network game for lazy admins and geeks which don't have 
+   2D network multiplayer game for lazy admins and geeks which don't have 
    X11 on their computers and servers. Also you can run shooter
    on your FreeBSD firewall server and have fun!
 

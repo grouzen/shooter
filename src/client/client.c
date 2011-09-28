@@ -224,7 +224,6 @@ void *ui_event_mngr_func(void *arg)
         /* Just remember previous parameters. */
         px = player->pos_x;
         py = player->pos_y;
-        direction = player->direction;
 
         switch(ui_event) {
         case UI_EVENT_WALK_LEFT:
@@ -252,7 +251,6 @@ void *ui_event_mngr_func(void *arg)
         if(retval != COLLISION_NONE) {
             player->pos_x = px;
             player->pos_y = py;
-            player->direction = direction;
         }
         
         pthread_mutex_unlock(&player_mutex);
@@ -282,18 +280,20 @@ void *recv_mngr_func(void *arg)
     /* TODO: ticks_finish(). */
     struct ticks *ticks = ticks_start();
 
-    /* TODO: remove this ugly hack. */
-    sleep(1);
+    /* This not ugly hack prevents freezing on start.
+     * Without it first message from server that contains
+     * info about map and other useful stuff blocked by another
+     * message that pushed after first one. That happens because
+     * ticks_get_diff() return value < 1000 / FPS and queue_mngr_func()
+     * doesn't recieve conditional signal and cannot fetch message
+     * about new connection to server.
+     */
+    ticks->count = 1000 / FPS;
 
     while("zombies walk") {
         uint8_t buf[sizeof(struct msg_batch)];
         struct msg_batch msgbatch;
         uint8_t *chunk;
-
-        if(ticks_get_diff(ticks) > 1000 / FPS) {
-            ticks_update(ticks);
-            pthread_cond_signal(&queue_mngr_cond);
-        }
         
         if(recvfrom(sd, buf, sizeof(struct msg_batch), 0, NULL, NULL) < 0) {
             perror("client: recvfrom");
@@ -317,6 +317,12 @@ void *recv_mngr_func(void *arg)
             }
         }
         pthread_mutex_unlock(&msgqueue_mutex);
+
+        if(ticks_get_diff(ticks) > 1000 / FPS) {
+            ticks_update(ticks);
+            pthread_cond_signal(&queue_mngr_cond);
+        }
+
     }
 
     return arg;
@@ -422,7 +428,7 @@ void quit(int signum)
 int main(int argc, char **argv)
 {
     // TODO: get the address from argv or config, or other place
-    struct hostent *host = gethostbyname((char *) "127.0.0.1");
+    struct hostent *host = gethostbyname((char *) "ftp.cis");
 
     signal(SIGINT, quit);
     signal(SIGHUP, quit);

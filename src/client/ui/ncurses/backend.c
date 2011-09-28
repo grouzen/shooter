@@ -167,6 +167,7 @@ static void ui_screen_update(void)
     for(h = 2, y = screen.offset_y; h < screen.height; h++, y++) {
         for(w = 1, x = screen.offset_x; w < screen.width + 1; w++, x++) {
             uint8_t o = map->objs[y][x];
+            
             switch(o) {
             case MAP_PLAYER:
                 mvwaddch(window, h, w, UI_MAP_ENEMY);
