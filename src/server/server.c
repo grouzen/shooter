@@ -236,11 +236,8 @@ void bullet_explode(struct bullet *b)
 
                 srand((unsigned int) time(NULL));
 
-                damage = weapons[b->type].damage_min + rand() % weapons[b->type].damage_max;
-                DEBUG("bullet_explode(): damage: %u, damage_min: %u, damage_max: %u.\n",
-                      damage, weapons[b->type].damage_min, weapons[b->type].damage_max);
+                damage = rand() % (weapons[b->type].damage_max - weapons[b->type].damage_min) + weapons[b->type].damage_min;
                 event_player_hit(p, b->player, damage);
-                
 
                 break;
             }
@@ -288,7 +285,8 @@ struct bullet *bullets_add(struct bullets *bullets, struct bullet *b)
     new->b = malloc(sizeof(struct bullet));
     new->prev = last;
     new->next = NULL;
-    
+
+    new->b->player = b->player;
     new->b->type = b->type;
     new->b->x = b->x;
     new->b->y = b->y;
@@ -574,7 +572,7 @@ void *recv_mngr_func(void *arg)
         qnode->addr = &client_addr;
         pthread_mutex_lock(&msgqueue_mutex);
         if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
-            INFO("server: msgqueue_push: couldn't push data into queue.\n");
+            WARN("server: msgqueue_push: couldn't push data into queue.\n");
         }
         pthread_mutex_unlock(&msgqueue_mutex);
     }
@@ -609,7 +607,7 @@ void *queue_mngr_func(void *arg)
                 event_shoot(qnode);
                 break;
             default:
-                INFO("Unknown event\n");
+                WARN("Unknown event\n");
                 break;
             }
         }
@@ -660,7 +658,7 @@ int main(int argc, char **argv)
     /* TODO: from config or args. */
     map = map_load((uint8_t *) "default.map");
     if(map == NULL) {
-        INFO("Map couldn't be loaded: %s.\n", "maze.map");
+        WARN("Map couldn't be loaded: %s.\n", "default.map");
         exit(EXIT_FAILURE);
     }
     

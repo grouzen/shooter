@@ -30,6 +30,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <pthread.h>
+#include <semaphore.h>
 #ifdef __FreeBSD__
 #include <netinet/in.h>
 #endif
@@ -42,6 +43,7 @@ pthread_t ui_mngr_thread, ui_event_mngr_thread, recv_mngr_thread, queue_mngr_thr
 pthread_attr_t common_attr;
 pthread_mutex_t msgqueue_mutex, map_mutex, player_mutex;
 pthread_cond_t queue_mngr_cond;
+sem_t queue_mngr_sem;
 struct sockaddr_in server_addr;
 struct msg_queue *msgqueue = NULL;
 struct player *player = NULL;
@@ -337,22 +339,17 @@ void *ui_mngr_func(void *arg)
 void *recv_mngr_func(void *arg)
 {
     /* TODO: ticks_finish(). */
-    struct ticks *ticks = ticks_start();
+    struct ticks *ticks;
 
-    /* This not ugly hack prevents freezing on start.
-     * Without it first message from server that contains
-     * info about map and other useful stuff blocked by another
-     * message that pushed after first one. That happens because
-     * ticks_get_diff() return value < 1000 / FPS and queue_mngr_func()
-     * doesn't recieve conditional signal and cannot fetch message
-     * about new connection to server.
-     */
-    ticks->count = 1000 / FPS;
+    sem_wait(&queue_mngr_sem);
+    sem_destroy(&queue_mngr_sem);
+    
+    ticks = ticks_start();
 
     while("zombies walk") {
         uint8_t buf[sizeof(struct msg_batch)];
         struct msg_batch msgbatch;
-        uint8_t *chunk;
+        uint8_t *chunk, id;
         
         if(recvfrom(sd, buf, sizeof(struct msg_batch), 0, NULL, NULL) < 0) {
             perror("client: recvfrom");
@@ -375,12 +372,17 @@ void *recv_mngr_func(void *arg)
                 pthread_mutex_unlock(&player_mutex);
             }
         }
-        pthread_mutex_unlock(&msgqueue_mutex);
 
-        if(ticks_get_diff(ticks) > 1000 / FPS) {
+        pthread_mutex_lock(&player_mutex);
+        id = player->id;
+        pthread_mutex_unlock(&player_mutex);
+        
+        if(ticks_get_diff(ticks) > 1000 / FPS || !id) {
             ticks_update(ticks);
             pthread_cond_signal(&queue_mngr_cond);
         }
+        
+        pthread_mutex_unlock(&msgqueue_mutex);
 
     }
 
@@ -393,9 +395,14 @@ void *queue_mngr_func(void *arg)
     
     while(1) {
         uint16_t w, h;
-        
-        pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
 
+        sem_post(&queue_mngr_sem);
+
+        pthread_mutex_lock(&msgqueue_mutex);
+        pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
+        
+        //DEBUG("queue_mngr_func() get signal.\n");
+        
         /* Clean map from players, bullets, bonuses and other objects. */
         if(map != NULL) {
             pthread_mutex_lock(&map_mutex);
@@ -517,6 +524,7 @@ int main(int argc, char **argv)
     pthread_mutex_init(&map_mutex, NULL);
     pthread_mutex_init(&player_mutex, NULL);
     pthread_cond_init(&queue_mngr_cond, NULL);
+    sem_init(&queue_mngr_sem, 0, 0);
     
     pthread_attr_init(&common_attr);
     pthread_attr_setdetachstate(&common_attr, PTHREAD_CREATE_JOINABLE);

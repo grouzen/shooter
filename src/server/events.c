@@ -59,7 +59,7 @@ void event_player_position(struct player *p)
 
 void event_player_killed(struct player *ptarget, struct player *pkiller)
 {
-    DEBUG("player has been killed.\n");
+    INFO("Player %s kills %s.\n", pkiller->nick, ptarget->nick);
     return;
 }
 
@@ -67,6 +67,9 @@ void event_player_hit(struct player *ptarget, struct player *pkiller, uint16_t d
 {
     struct msg msg;
 
+    
+    INFO("Player %s hits %s, damage: %u\n", pkiller->nick, ptarget->nick, damage);
+    
     ptarget->seq++;
 
     if(ptarget->armor > damage / 2) {
@@ -86,8 +89,6 @@ void event_player_hit(struct player *ptarget, struct player *pkiller, uint16_t d
         return;
     }
 
-    DEBUG("event_player_hit(): damage: %u, hp: %u, armor: %u.\n", damage, ptarget->hp, ptarget->armor);
-    
     msg.type = MSGTYPE_PLAYER_HIT;
     msg.event.player_hit.hp = ptarget->hp;
     msg.event.player_hit.armor = ptarget->armor;
@@ -103,6 +104,8 @@ void event_map_explode(uint16_t w, uint16_t h)
     msg.event.map_explode.w = w;
     msg.event.map_explode.h = h;
 
+    INFO("Map has been destroyed at %ux%u.\n", w, h);
+    
     while(slot != NULL) {
         struct player *p = slot->p;
 
@@ -123,7 +126,8 @@ void event_on_bonus(struct player *p, struct bonus *bonus)
     switch(bonus->type) {
     case BONUSTYPE_WEAPON:
         p->weapons.bullets[bonus->index] = weapons[bonus->index].bullets_count;
-        
+        INFO("Player %s get bonus: weapon - %s.\n",
+             p->nick, weapons[bonus->index].name);
         break;
     default:
         break;
@@ -219,7 +223,6 @@ void send_events(void)
 
         while(lslot != NULL) {
             struct player *lp = lslot->p;
-            struct msg m;
 
             if(IN_PLAYER_VIEWPORT(lp->pos_x, lp->pos_y, p->pos_x, p->pos_y)) {
                 event_enemy_position(p, lp->pos_x, lp->pos_y);
@@ -255,11 +258,11 @@ void event_disconnect_client(struct msg_queue_node *qnode)
     }
 
     if(players_release(players, qnode->data->header.id) == PLAYERS_ERROR) {
-        INFO("Couldn't remove the player from slots: %u\n", qnode->data->header.id);
+        WARN("Couldn't remove the player from slots: %u\n", qnode->data->header.id);
         return;
     }
 
-    INFO("Player has been disconnected: %s\n", nick);
+    INFO("Player %s disconnect.\n", nick);
 
     event_disconnect_notify(nick);    
 }
@@ -278,7 +281,7 @@ void event_connect_ask(struct msg_queue_node *qnode)
         struct msg msg;
         struct msg_batch msgbatch;
         
-        INFO("There are no free slots. Server maintains maximum %u players\n", MAX_PLAYERS);
+        WARN("There are no free slots. Server maintains maximum %u players\n", MAX_PLAYERS);
 
         msg.type = MSGTYPE_CONNECT_OK;
         msg.event.connect_ok.ok = 0;
@@ -297,7 +300,7 @@ void event_connect_ask(struct msg_queue_node *qnode)
             .y = 0
         };
         
-        INFO("Player has been connected with nick: %s, total players: %u\n",
+        INFO("New player connected with nick %s. Total players: %u.\n",
              newplayer->nick, players->count);
         
         /* Connect new player. */
@@ -324,8 +327,8 @@ void event_shoot(struct msg_queue_node *qnode)
 {
     struct player *p = players->slots[qnode->data->header.id]->p;
     struct bullet b = {
-        .type = p->weapons.current,
         .player = p,
+        .type = p->weapons.current,
         .x = p->pos_x,
         .y = p->pos_y,
         .sx = p->pos_x,
@@ -333,9 +336,6 @@ void event_shoot(struct msg_queue_node *qnode)
         .direction = p->direction
     };
 
-    DEBUG("event_shoot(): weapons->current: %u, weapons->bullets_count: %u\n",
-          p->weapons.current, p->weapons.bullets[p->weapons.current]);
-    
     if(p->weapons.bullets[p->weapons.current] > 0) {
         p->weapons.bullets[p->weapons.current]--;
         bullets_add(bullets, &b);
@@ -347,11 +347,9 @@ void event_walk(struct msg_queue_node *qnode)
 {
     struct player *p = players->slots[qnode->data->header.id]->p;
     uint16_t px, py;
-    uint8_t direction;
 
     px = p->pos_x;
     py = p->pos_y;
-    direction = p->direction;
     
     p->direction = qnode->data->event.walk.direction;
     
@@ -375,10 +373,7 @@ void event_walk(struct msg_queue_node *qnode)
     if(collision_check_player(p, map, players) != COLLISION_NONE) {
         p->pos_x = px;
         p->pos_y = py;
-        p->direction = direction;
     }
-
-    DEBUG("%ux%u\n", p->pos_x, p->pos_y);
     
     event_player_position(p);
 }
