@@ -33,21 +33,21 @@
 
 /* Bonuses. */
 struct weapon weapons[WEAPON_SLOTS_MAX] = {
-    /*   NAME         INDEX           DMAX   DMIN   BSPEED   BDIST   BCOUNT */
-    {   "gun",   BONUS_WEAPON_GUN,     20,     5,      0,      0,     100   },
-    {  "rocket", BONUS_WEAPON_ROCKET,  90,    40,      3,     40,      10   }
+    /*   NAME         INDEX    DMAX   DMIN   BSPEED   BDIST   BCOUNT   EMAP   ERAD */
+    {   "gun",   WEAPON_GUN,     8,     2,     0,       0,     100,     1,      0  },
+    {  "rocket", WEAPON_ROCKET, 90,    40,     3,       0,      10,     1,      0  }
 };
 
 struct health healths[] = {
-    /*  NAME          INDEX           HP */
-    {  "hbig",   BONUS_HEALTH_BIG,   100 },
-    {  "hsmall", BONUS_HEALTH_SMALL,  50 }
+    /*  NAME        INDEX       HP */
+    {  "hbig",   HEALTH_BIG,   100 },
+    {  "hsmall", HEALTH_SMALL,  50 }
 };
 
 struct armor armors[] = {
-    /* NAME            INDEX         ARMOR */
-    { "aheavy",  BONUS_ARMOR_HEAVY,   100  },
-    { "alight",  BONUS_ARMOR_LIGHT,    50  }
+    /* NAME         INDEX      ARMOR */
+    { "aheavy",  ARMOR_HEAVY,   100  },
+    { "alight",  ARMOR_LIGHT,    50  }
 };
 
 /* TODO: pack_float(). */
@@ -95,6 +95,19 @@ static void msgtype_player_position_pack(struct msg *m, uint8_t *buf)
     buf += 2;
 }
 
+static void msgtype_player_hit_pack(struct msg *m, uint8_t *buf)
+{
+    pack16_int(buf, htons(m->event.player_hit.hp));
+    buf += 2;
+    pack16_int(buf, htons(m->event.player_hit.armor));
+    buf += 2;
+}
+
+static void msgtype_player_killed_pack(struct msg *m, uint8_t *buf)
+{
+    *buf++ = m->event.player_killed.some;
+}
+
 static void msgtype_enemy_position_pack(struct msg *m, uint8_t *buf)
 {
     uint16_t pos_x = m->event.enemy_position.pos_x;
@@ -108,7 +121,7 @@ static void msgtype_enemy_position_pack(struct msg *m, uint8_t *buf)
 
 static void msgtype_shoot_pack(struct msg *m, uint8_t *buf)
 {
-    *buf++ = m->event.shoot.gun_type;
+    *buf++ = m->event.shoot.stub;
 }
 
 static void msgtype_connect_ask_pack(struct msg *m, uint8_t *buf)
@@ -150,6 +163,14 @@ static void msgtype_on_bonus_pack(struct msg *m, uint8_t *buf)
     *buf++ = m->event.on_bonus.index;
 }
 
+static void msgtype_map_explode_pack(struct msg *m, uint8_t *buf)
+{
+    pack16_int(buf, htons(m->event.map_explode.w));
+    buf += 2;
+    pack16_int(buf, htons(m->event.map_explode.h));
+    buf += 2;
+}
+
 /* ... and for unpacking. */
 static void msgtype_walk_unpack(uint8_t *buf, struct msg *m)
 {
@@ -164,6 +185,19 @@ static void msgtype_player_position_unpack(uint8_t *buf, struct msg *m)
     buf += 2;
 }
 
+static void msgtype_player_hit_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.player_hit.hp = ntohs(unpack16_int(buf));
+    buf += 2;
+    m->event.player_hit.armor = ntohs(unpack16_int(buf));
+    buf += 2;
+}
+
+static void msgtype_player_killed_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.player_killed.some = (uint8_t) *buf++;
+}
+
 static void msgtype_enemy_position_unpack(uint8_t *buf, struct msg *m)
 {
     m->event.enemy_position.pos_x = ntohs(unpack16_int(buf));
@@ -174,7 +208,7 @@ static void msgtype_enemy_position_unpack(uint8_t *buf, struct msg *m)
 
 static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
 {
-    m->event.shoot.gun_type = (uint8_t) *buf++;
+    m->event.shoot.stub = (uint8_t) *buf++;
 }
 
 static void msgtype_connect_ask_unpack(uint8_t *buf, struct msg *m)
@@ -216,6 +250,14 @@ static void msgtype_on_bonus_unpack(uint8_t *buf, struct msg *m)
     m->event.on_bonus.index = (uint8_t) *buf++;
 }
 
+static void msgtype_map_explode_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.map_explode.w = ntohs(unpack16_int(buf));
+    buf += 2;
+    m->event.map_explode.h = ntohs(unpack16_int(buf));
+    buf += 2;
+}
+
 /* Because I hate switches and all these condition statements
  * I prefer to use calls table. They must be synced with enum
  * declared in cdata.h.
@@ -223,6 +265,8 @@ static void msgtype_on_bonus_unpack(uint8_t *buf, struct msg *m)
 intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_walk_pack,
     (intptr_t) msgtype_player_position_pack,
+    (intptr_t) msgtype_player_hit_pack,
+    (intptr_t) msgtype_player_killed_pack,
     (intptr_t) msgtype_enemy_position_pack,
     (intptr_t) msgtype_shoot_pack,
     (intptr_t) msgtype_connect_ask_pack,
@@ -231,12 +275,15 @@ intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_disconnect_server_pack,
     (intptr_t) msgtype_disconnect_client_pack,
     (intptr_t) msgtype_disconnect_notify_pack,
-    (intptr_t) msgtype_on_bonus_pack
+    (intptr_t) msgtype_on_bonus_pack,
+    (intptr_t) msgtype_map_explode_pack,
 };
 
 intptr_t msgtype_unpack_funcs[] = {
     (intptr_t) msgtype_walk_unpack,
     (intptr_t) msgtype_player_position_unpack,
+    (intptr_t) msgtype_player_hit_unpack,
+    (intptr_t) msgtype_player_killed_unpack,
     (intptr_t) msgtype_enemy_position_unpack,
     (intptr_t) msgtype_shoot_unpack,
     (intptr_t) msgtype_connect_ask_unpack,
@@ -245,7 +292,8 @@ intptr_t msgtype_unpack_funcs[] = {
     (intptr_t) msgtype_disconnect_server_unpack,
     (intptr_t) msgtype_disconnect_client_unpack,
     (intptr_t) msgtype_disconnect_notify_unpack,
-    (intptr_t) msgtype_on_bonus_unpack
+    (intptr_t) msgtype_on_bonus_unpack,
+    (intptr_t) msgtype_map_explode_unpack
 };
 
 /* General packing/unpacking functions. */
@@ -354,6 +402,7 @@ struct player *player_init(void)
     p->addr = malloc(sizeof(struct sockaddr_in));
 #endif
     p->hp = 100;
+    p->armor = 50;
 
     return p;
     
@@ -498,8 +547,8 @@ enum collision_enum_t collision_check_player(struct player *p, struct map *m)
 #ifdef _SERVER_
     struct players_slot *slot = s->root;
 #endif
-    if((int16_t) p->pos_x < 0 || (int16_t) p->pos_y < 0 || p->pos_x >= m->width ||
-       p->pos_y >= m->height || m->objs[p->pos_y][p->pos_x] == MAP_WALL) {
+    if(p->pos_x <= 0 || p->pos_y <= 0 || p->pos_x >= m->width + 1 ||
+       p->pos_y >= m->height + 1 || m->objs[p->pos_y - 1][p->pos_x - 1] == MAP_WALL) {
         return COLLISION_WALL;
     }
 #ifdef _SERVER_
@@ -513,7 +562,7 @@ enum collision_enum_t collision_check_player(struct player *p, struct map *m)
         slot = slot->next;
     }
 #elif _CLIENT_
-    if(m->objs[p->pos_y][p->pos_x] == MAP_PLAYER) {
+    if(m->objs[p->pos_y - 1][p->pos_x - 1] == MAP_PLAYER) {
         return COLLISION_PLAYER;
     }
 #endif

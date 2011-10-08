@@ -91,7 +91,7 @@ int ui_get_event(void)
     
     int lkey = ui_event_pop(&event);
     while(ui_event_pop(&event) != 0);
-    
+
     switch(lkey) {
     case 'a':
         return UI_EVENT_WALK_LEFT;
@@ -104,6 +104,9 @@ int ui_get_event(void)
         break;
     case 's':
         return UI_EVENT_WALK_DOWN;
+        break;
+    case ' ':
+        return UI_EVENT_SHOOT;
         break;
     default:
         return UI_EVENT_NONE;
@@ -149,8 +152,8 @@ static void ui_status_line_update(void)
              player->hp,
              player->armor,
              weapons[player->weapons.current].name,
-             player->weapons.bullets[BONUS_WEAPON_GUN],
-             player->weapons.bullets[BONUS_WEAPON_ROCKET]
+             player->weapons.bullets[WEAPON_GUN],
+             player->weapons.bullets[WEAPON_ROCKET]
              );
 
     for(x = 2; x < screen.width; x++) {
@@ -208,8 +211,8 @@ static void ui_screen_update(void)
         }
     }
     
-    mvwaddch(window, player->pos_y + 2 - screen.offset_y,
-             player->pos_x + 1 - screen.offset_x, UI_MAP_PLAYER);
+    mvwaddch(window, player->pos_y + 1 - screen.offset_y,
+             player->pos_x - screen.offset_x, UI_MAP_PLAYER);
     
     pthread_mutex_unlock(&map_mutex);
     pthread_mutex_unlock(&player_mutex);

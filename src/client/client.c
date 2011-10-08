@@ -179,6 +179,21 @@ void event_disconnect_server(struct msg *m)
     quit(1);
 }
 
+void event_player_hit(struct msg *m)
+{
+    pthread_mutex_lock(&player_mutex);
+    player->hp = m->event.player_hit.hp;
+    player->armor = m->event.player_hit.armor;
+    pthread_mutex_unlock(&player_mutex);
+}
+
+void event_map_explode(struct msg *m)
+{
+    pthread_mutex_lock(&map_mutex);
+    map->objs[m->event.map_explode.h][m->event.map_explode.w] = MAP_EMPTY;
+    pthread_mutex_unlock(&map_mutex);
+}
+
 void event_on_bonus(struct msg *m)
 {
     uint8_t type = m->event.on_bonus.type;
@@ -208,8 +223,17 @@ void event_player_position(struct msg *m)
 void event_enemy_position(struct msg *m)
 {
     pthread_mutex_lock(&map_mutex);
-    map->objs[m->event.enemy_position.pos_y][m->event.enemy_position.pos_x] = MAP_PLAYER;
+    map->objs[m->event.enemy_position.pos_y - 1][m->event.enemy_position.pos_x - 1] = MAP_PLAYER;
     pthread_mutex_unlock(&map_mutex);
+}
+
+void event_shoot(void)
+{
+    struct msg msg;
+    
+    msg.type = MSGTYPE_SHOOT;
+
+    send_event(&msg);
 }
 
 void event_walk(void)
@@ -230,8 +254,6 @@ void *ui_event_mngr_func(void *arg)
         int ui_event;
         struct timespec req;
         uint16_t px, py;
-        uint8_t direction;
-        int retval;
 
         req.tv_sec = 1000 / FPS / 1000;
         req.tv_nsec = 1000 / FPS * 1000000;
@@ -263,28 +285,44 @@ void *ui_event_mngr_func(void *arg)
             player->direction = DIRECTION_DOWN;
             player->pos_y++;
             break;
+        case UI_EVENT_SHOOT:
+            if(player->weapons.bullets[player->weapons.current] > 0) {
+                (player->weapons.bullets[player->weapons.current])--;
+            }
+            
+            break;
         default:
             break;
         }
         
-        retval = collision_check_player(player, map);
-        
-        if(retval != COLLISION_NONE) {
-            player->pos_x = px;
-            player->pos_y = py;
-        }
-        
         pthread_mutex_unlock(&player_mutex);
 
-        if(ui_event != UI_EVENT_NONE) {
+        switch(ui_event) {
+        case UI_EVENT_WALK_LEFT:
+        case UI_EVENT_WALK_RIGHT:
+        case UI_EVENT_WALK_UP:
+        case UI_EVENT_WALK_DOWN:
+            pthread_mutex_lock(&player_mutex);
+            if(collision_check_player(player, map) != COLLISION_NONE) {
+                player->pos_x = px;
+                player->pos_y = py;
+            }
+            pthread_mutex_unlock(&player_mutex);
+
             event_walk();
+            break;
+        case UI_EVENT_SHOOT:
+            event_shoot();
+            break;
+        default:
+            break;
         }
-         
+        
         ui_refresh();
     }
 }
 
-/* Init ui_backend. */
+/* Init ui backend. */
 void *ui_mngr_func(void *arg)
 {
     pthread_create(&ui_event_mngr_thread, &common_attr, ui_event_mngr_func, NULL);
@@ -404,6 +442,12 @@ void *queue_mngr_func(void *arg)
             case MSGTYPE_ON_BONUS:
                 event_on_bonus(m);
                 break;
+            case MSGTYPE_PLAYER_HIT:
+                event_player_hit(m);
+                break;
+            case MSGTYPE_MAP_EXPLODE:
+                event_map_explode(m);
+                break;
             default:
                 break;
             }
@@ -449,7 +493,7 @@ void quit(int signum)
 int main(int argc, char **argv)
 {
     // TODO: get the address from argv or config, or other place
-    struct hostent *host = gethostbyname((char *) "ftp.cis");
+    struct hostent *host = gethostbyname((char *) "localhost");
 
     signal(SIGINT, quit);
     signal(SIGHUP, quit);

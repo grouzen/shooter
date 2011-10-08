@@ -103,6 +103,8 @@ enum {
     //MSGTYPE_NONE = -1,
     MSGTYPE_WALK = 0,
     MSGTYPE_PLAYER_POSITION,
+    MSGTYPE_PLAYER_HIT,
+    MSGTYPE_PLAYER_KILLED,
     MSGTYPE_ENEMY_POSITION,
     MSGTYPE_SHOOT,
     MSGTYPE_CONNECT_ASK,
@@ -111,7 +113,8 @@ enum {
     MSGTYPE_DISCONNECT_SERVER,
     MSGTYPE_DISCONNECT_CLIENT,
     MSGTYPE_DISCONNECT_NOTIFY,
-    MSGTYPE_ON_BONUS
+    MSGTYPE_ON_BONUS,
+    MSGTYPE_MAP_EXPLODE
 };
 
 struct msgtype_walk {
@@ -123,13 +126,22 @@ struct msgtype_player_position {
     uint16_t pos_y;
 };
 
+struct msgtype_player_hit {
+    uint16_t hp;
+    uint16_t armor;
+};
+
+struct msgtype_player_killed {
+    uint8_t some;
+};
+
 struct msgtype_enemy_position {
     uint16_t pos_x;
     uint16_t pos_y;
 };
 
 struct msgtype_shoot {
-    uint8_t gun_type;
+    uint8_t stub;
 };
 
 struct msgtype_connect_ask {
@@ -164,6 +176,11 @@ struct msgtype_on_bonus {
     uint8_t index;
 };
 
+struct msgtype_map_explode {
+    uint16_t w;
+    uint16_t h;
+};
+
 /*
  * General message structures
  */
@@ -178,6 +195,8 @@ struct msg {
     union {
         struct msgtype_walk walk;
         struct msgtype_player_position player_position;
+        struct msgtype_player_hit player_hit;
+        struct msgtype_player_killed player_killed;
         struct msgtype_enemy_position enemy_position;
         struct msgtype_shoot shoot;
         struct msgtype_connect_ask connect_ask;
@@ -187,6 +206,7 @@ struct msg {
         struct msgtype_disconnect_client disconnect_client;
         struct msgtype_disconnect_notify disconnect_notify;
         struct msgtype_on_bonus on_bonus;
+        struct msgtype_map_explode map_explode;
     } event;
 };
 
@@ -229,8 +249,8 @@ enum {
 #define HEALTH_NAME_MAX_LEN 8
 
 enum {
-    BONUS_HEALTH_BIG = 0,
-    BONUS_HEALTH_SMALL
+    HEALTH_BIG = 0,
+    HEALTH_SMALL
 };
 
 struct health {
@@ -244,8 +264,8 @@ extern struct health healths[];
 #define ARMOR_NAME_MAX_LEN 8
 
 enum {
-    BONUS_ARMOR_HEAVY = 0,
-    BONUS_ARMOR_LIGHT
+    ARMOR_HEAVY = 0,
+    ARMOR_LIGHT
 };
 
 struct armor {
@@ -259,8 +279,8 @@ extern struct armor armors[];
 #define WEAPON_NAME_MAX_LEN 8
 
 enum {
-    BONUS_WEAPON_GUN = 0,
-    BONUS_WEAPON_ROCKET
+    WEAPON_GUN = 0,
+    WEAPON_ROCKET
 };
 
 struct weapon {
@@ -271,6 +291,8 @@ struct weapon {
     uint8_t bullets_speed;
     uint8_t bullets_distance;
     uint16_t bullets_count;
+    uint8_t explode_map;
+    uint8_t explode_radius;
 };
 
 #define WEAPON_SLOTS_MAX 9
@@ -302,7 +324,7 @@ struct player {
     uint8_t *nick;
     uint32_t seq;
     uint8_t direction;
-    uint16_t pos_x;
+    uint16_t pos_x; /* [1..65535] */
     uint16_t pos_y;
     uint16_t hp;
     uint16_t armor;

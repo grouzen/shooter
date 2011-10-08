@@ -16,7 +16,7 @@
     or with debug output
 #+BEGIN_EXAMPLE
     make server CFLAGS="$CFLAGS -D_DEBUG_"
-    # or edit Makefile and add to macro CFLAGS -D_DEBUG_
+    # or edit Makefile and add `-D_DEBUG_` to macro `CFLAGS`
     CFLAGS += -Wall -Wextra -g -D_DEBUG_
 #+END_EXAMPLE
 
