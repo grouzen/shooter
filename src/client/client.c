@@ -1,3 +1,24 @@
+/* Copyright (c) 2011 Michael Nedokushev <grouzen.hexy@gmail.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -9,16 +30,20 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <pthread.h>
+#include <semaphore.h>
+#ifdef __FreeBSD__
+#include <netinet/in.h>
+#endif
 
 #include "../cdata.h"
 #include "ui/backend.h"
 #include "client.h"
 
-pthread_t ui_mngr_thread, recv_mngr_thread;
+pthread_t ui_mngr_thread, ui_event_mngr_thread, recv_mngr_thread, queue_mngr_thread;
 pthread_attr_t common_attr;
-pthread_mutex_t msgqueue_mutex;
+pthread_mutex_t msgqueue_mutex, map_mutex, player_mutex;
 pthread_cond_t queue_mngr_cond;
-struct ticks *ui_mngr_ticks;
+sem_t queue_mngr_sem;
 struct sockaddr_in server_addr;
 struct msg_queue *msgqueue = NULL;
 struct player *player = NULL;
@@ -72,33 +97,14 @@ struct msg *msgqueue_pop(struct msg_queue *q)
     return NULL;
 }
 
-void quit(int signum)
-{    
-    if(signum > 0) {
-        pthread_cancel(recv_mngr_thread);
-        pthread_cancel(ui_mngr_thread);
-    }
-    
-    pthread_join(recv_mngr_thread, NULL);
-    pthread_join(ui_mngr_thread, NULL);
-
-    event_disconnect_client();
-    
-    close(sd);
-    msgqueue_free(msgqueue);
-    player_free(player);
-    pthread_mutex_destroy(&msgqueue_mutex);
-    pthread_cond_destroy(&queue_mngr_cond);
-    pthread_attr_destroy(&common_attr);
-    pthread_exit(NULL);
-}
-
 void send_event(struct msg *m)
 {
     uint8_t buf[sizeof(struct msg)];
-    
+
+    pthread_mutex_lock(&player_mutex);
     m->header.id = player->id;
     m->header.seq = player->seq;
+    pthread_mutex_unlock(&player_mutex);
 
     msg_pack(m, buf);
     
@@ -127,27 +133,225 @@ void event_connect_ask(void)
     send_event(&msg);
 }
 
-/* Init ui_backend. */
-void *ui_mngr_func(void *arg)
+void event_connect_ok(struct msg *m)
 {
-    if(ui_init() == UI_ERROR) {
-        fprintf(stderr, "UI couldn't init.\n");
+    uint8_t *mapname = m->event.connect_ok.mapname;
+    
+    if(m->event.connect_ok.ok) {
+        pthread_mutex_lock(&map_mutex);
+        map = map_load(mapname);
+        pthread_mutex_unlock(&map_mutex);
+        if(map == NULL) {
+            WARN("Map couldn't be loaded: %s. Trying to load it from server...\n", mapname);
+            /* TODO: call event_map_load_ask() which calls map_load(). */
+            quit(1);
+        }
+        
+        ui_notify_line_set("Connected with id: %u, map: %s.", m->event.connect_ok.id, (char *) mapname);
+        
+        pthread_mutex_lock(&player_mutex);
+        player->id = m->event.connect_ok.id;
+        pthread_mutex_unlock(&player_mutex);
+        
+        /* TODO: move this call to event_map_load_finish() for example. */
+        pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
+    } else {
+        ui_notify_line_set("Connection failed.");
     }
+}
+
+void event_connect_notify(struct msg *m)
+{
+    ui_notify_line_set("New player has been connected with nick: %s.",
+                       m->event.connect_notify.nick);
+}
+
+void event_disconnect_notify(struct msg *m)
+{
+    ui_notify_line_set("Player has been disconnected: %s.",
+                       m->event.disconnect_notify.nick);
+}
+
+void event_disconnect_server(struct msg *m)
+{
+    ui_notify_line_set("Server has been halted. Disconnecting...");
+    ui_refresh();
+    sleep(3);
     
     quit(1);
 }
 
+void event_player_hit(struct msg *m)
+{
+    pthread_mutex_lock(&player_mutex);
+    player->hp = m->event.player_hit.hp;
+    player->armor = m->event.player_hit.armor;
+    pthread_mutex_unlock(&player_mutex);
+}
+
+void event_map_explode(struct msg *m)
+{
+    pthread_mutex_lock(&map_mutex);
+    map->objs[m->event.map_explode.h][m->event.map_explode.w] = MAP_EMPTY;
+    pthread_mutex_unlock(&map_mutex);
+}
+
+void event_on_bonus(struct msg *m)
+{
+    uint8_t type = m->event.on_bonus.type;
+    uint8_t index = m->event.on_bonus.index;
+    
+    switch(type) {
+    case BONUSTYPE_WEAPON:
+        pthread_mutex_lock(&player_mutex);
+        player->weapons.slots[index] = 1;
+        player->weapons.bullets[index] = weapons[index].bullets_count;
+        pthread_mutex_unlock(&player_mutex);
+
+        break;
+    default:
+        break;
+    }
+}
+
+void event_player_position(struct msg *m)
+{
+    pthread_mutex_lock(&player_mutex);
+    player->pos_x = m->event.player_position.pos_x;
+    player->pos_y = m->event.player_position.pos_y;
+    pthread_mutex_unlock(&player_mutex);
+}
+
+void event_enemy_position(struct msg *m)
+{
+    pthread_mutex_lock(&map_mutex);
+    map->objs[m->event.enemy_position.pos_y - 1][m->event.enemy_position.pos_x - 1] = MAP_PLAYER;
+    pthread_mutex_unlock(&map_mutex);
+}
+
+void event_shoot(void)
+{
+    struct msg msg;
+    
+    msg.type = MSGTYPE_SHOOT;
+
+    send_event(&msg);
+}
+
+void event_walk(void)
+{
+    struct msg msg;
+
+    pthread_mutex_lock(&player_mutex);
+    msg.type = MSGTYPE_WALK;
+    msg.event.walk.direction = player->direction;
+    pthread_mutex_unlock(&player_mutex);
+    
+    send_event(&msg);
+}
+
+void *ui_event_mngr_func(void *arg)
+{
+    while(1) {
+        int ui_event;
+        struct timespec req;
+        uint16_t px, py;
+
+        req.tv_sec = 1000 / FPS / 1000;
+        req.tv_nsec = 1000 / FPS * 1000000;
+
+        nanosleep(&req, NULL);
+        
+        ui_event = ui_get_event();
+        
+        pthread_mutex_lock(&player_mutex);
+        
+        /* Just remember previous parameters. */
+        px = player->pos_x;
+        py = player->pos_y;
+
+        switch(ui_event) {
+        case UI_EVENT_WALK_LEFT:
+            player->direction = DIRECTION_LEFT;
+            player->pos_x--;
+            break;
+        case UI_EVENT_WALK_RIGHT:
+            player->direction = DIRECTION_RIGHT;
+            player->pos_x++;
+            break;
+        case UI_EVENT_WALK_UP:
+            player->direction = DIRECTION_UP;
+            player->pos_y--;
+            break;
+        case UI_EVENT_WALK_DOWN:
+            player->direction = DIRECTION_DOWN;
+            player->pos_y++;
+            break;
+        case UI_EVENT_SHOOT:
+            if(player->weapons.bullets[player->weapons.current] > 0) {
+                (player->weapons.bullets[player->weapons.current])--;
+            }
+            
+            break;
+        default:
+            break;
+        }
+        
+        pthread_mutex_unlock(&player_mutex);
+
+        switch(ui_event) {
+        case UI_EVENT_WALK_LEFT:
+        case UI_EVENT_WALK_RIGHT:
+        case UI_EVENT_WALK_UP:
+        case UI_EVENT_WALK_DOWN:
+            pthread_mutex_lock(&player_mutex);
+            if(collision_check_player(player, map) != COLLISION_NONE) {
+                player->pos_x = px;
+                player->pos_y = py;
+            }
+            pthread_mutex_unlock(&player_mutex);
+
+            event_walk();
+            break;
+        case UI_EVENT_SHOOT:
+            event_shoot();
+            break;
+        default:
+            break;
+        }
+        
+        ui_refresh();
+    }
+}
+
+/* Init ui backend. */
+void *ui_mngr_func(void *arg)
+{
+    pthread_create(&ui_event_mngr_thread, &common_attr, ui_event_mngr_func, NULL);
+    
+    if(ui_init() == UI_ERROR) {
+        WARN("UI couldn't init.\n");
+    }
+    
+    quit(1);   
+}
+
 void *recv_mngr_func(void *arg)
 {
-    ssize_t recvbytes;
+    /* TODO: ticks_finish(). */
+    struct ticks *ticks;
+
+    sem_wait(&queue_mngr_sem);
+    sem_destroy(&queue_mngr_sem);
     
+    ticks = ticks_start();
+
     while("zombies walk") {
         uint8_t buf[sizeof(struct msg_batch)];
         struct msg_batch msgbatch;
-        uint8_t *chunk;
+        uint8_t *chunk, id;
         
-        if((recvbytes = recvfrom(sd, buf, sizeof(struct msg_batch),
-                                 0, NULL, NULL)) < 0) {
+        if(recvfrom(sd, buf, sizeof(struct msg_batch), 0, NULL, NULL) < 0) {
             perror("client: recvfrom");
             continue;
         }
@@ -161,35 +365,142 @@ void *recv_mngr_func(void *arg)
             
             msg_unpack(chunk, &m);
             if(msgqueue_push(msgqueue, &m) == MSGQUEUE_ERROR) {
-                fprintf(stderr, "client: msgqueue_push: couldn't push data into queue.\n");
+                WARN("client: msgqueue_push: couldn't push data into queue.\n");
+            } else {
+                pthread_mutex_lock(&player_mutex);
+                player->seq++;
+                pthread_mutex_unlock(&player_mutex);
             }
         }
+
+        pthread_mutex_lock(&player_mutex);
+        id = player->id;
+        pthread_mutex_unlock(&player_mutex);
+        
+        if(ticks_get_diff(ticks) > 1000 / FPS || !id) {
+            ticks_update(ticks);
+            pthread_cond_signal(&queue_mngr_cond);
+        }
+        
         pthread_mutex_unlock(&msgqueue_mutex);
+
     }
 
+    return arg;
 }
 
 void *queue_mngr_func(void *arg)
 {
     struct msg *m;
     
-    sleep(1);
-
     while(1) {
+        uint16_t w, h;
+
+        sem_post(&queue_mngr_sem);
+
+        pthread_mutex_lock(&msgqueue_mutex);
         pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
+        
+        //DEBUG("queue_mngr_func() get signal.\n");
+        
+        /* Clean map from players, bullets, bonuses and other objects. */
+        if(map != NULL) {
+            pthread_mutex_lock(&map_mutex);
+            for(h = 0; h < map->height; h++) {
+                for(w = 0; w < map->width; w++) {
+                    uint8_t o = map->objs[h][w];
+                
+                    if(o == MAP_PLAYER || o == MAP_BULLET) {
+                        map->objs[h][w] = MAP_EMPTY;
+                    }
+                }
+            }
+            pthread_mutex_unlock(&map_mutex);
+        }
         
         while((m = msgqueue_pop(msgqueue)) != NULL) {
             /* TODO: just fucking do it!. */
+            /* TODO: check player->id, if it's 0 than warn. */
+            
+            /* TODO: figure out how to return this case into switch.
+               Problem in that we cann't start a game until
+               map is not loaded
+            */
+            
+            switch(m->type) {
+            case MSGTYPE_CONNECT_OK:
+                event_connect_ok(m);
+                break;
+            case MSGTYPE_CONNECT_NOTIFY:
+                event_connect_notify(m);
+                break;
+            case MSGTYPE_DISCONNECT_NOTIFY:
+                event_disconnect_notify(m);
+                break;
+            case MSGTYPE_DISCONNECT_SERVER:
+                event_disconnect_server(m);
+                break;
+            case MSGTYPE_PLAYER_POSITION:
+                event_player_position(m);
+                break;
+            case MSGTYPE_ENEMY_POSITION:
+                event_enemy_position(m);
+                break;
+            case MSGTYPE_ON_BONUS:
+                event_on_bonus(m);
+                break;
+            case MSGTYPE_PLAYER_HIT:
+                event_player_hit(m);
+                break;
+            case MSGTYPE_MAP_EXPLODE:
+                event_map_explode(m);
+                break;
+            default:
+                break;
+            }
         }
 
         pthread_mutex_unlock(&msgqueue_mutex);
+        
+        ui_refresh();
     }
+}
+
+void quit(int signum)
+{    
+    if(signum > 0) {
+        pthread_cancel(recv_mngr_thread);
+        pthread_cancel(ui_mngr_thread);
+        pthread_cancel(ui_event_mngr_thread);
+        pthread_cancel(queue_mngr_thread);
+    }
+    
+    pthread_join(recv_mngr_thread, NULL);
+    pthread_join(ui_mngr_thread, NULL);
+    pthread_join(ui_event_mngr_thread, NULL);
+    pthread_join(queue_mngr_thread, NULL);
+
+    ui_free();
+    event_disconnect_client();
+    
+    close(sd);
+    if(map != NULL) {
+        map_unload(map);
+    }
+    msgqueue_free(msgqueue);
+    player_free(player);
+    pthread_mutex_destroy(&msgqueue_mutex);
+    pthread_mutex_destroy(&map_mutex);
+    pthread_mutex_destroy(&player_mutex);
+    pthread_cond_destroy(&queue_mngr_cond);
+    pthread_attr_destroy(&common_attr);
+    pthread_exit(NULL);
 }
 
 int main(int argc, char **argv)
 {
     // TODO: get the address from argv or config, or other place
-    struct hostent *host = gethostbyname((char *) "127.0.0.1");
+    struct hostent *host = gethostbyname((char *) "localhost");
 
     signal(SIGINT, quit);
     signal(SIGHUP, quit);
@@ -197,8 +508,6 @@ int main(int argc, char **argv)
 
     msgqueue = msgqueue_init();
     player = player_init();
-    
-    ui_mngr_ticks = ticks_start();
     
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -212,14 +521,17 @@ int main(int argc, char **argv)
     }
 
     pthread_mutex_init(&msgqueue_mutex, NULL);
+    pthread_mutex_init(&map_mutex, NULL);
+    pthread_mutex_init(&player_mutex, NULL);
     pthread_cond_init(&queue_mngr_cond, NULL);
+    sem_init(&queue_mngr_sem, 0, 0);
     
     pthread_attr_init(&common_attr);
     pthread_attr_setdetachstate(&common_attr, PTHREAD_CREATE_JOINABLE);
 
+    pthread_create(&queue_mngr_thread, &common_attr, queue_mngr_func, NULL);
     pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
-    pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
-
+    
     event_connect_ask();
     
     quit(0);

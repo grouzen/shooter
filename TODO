@@ -7,26 +7,8 @@
 
 ** todo for all
 *** TODO Try to figure out what should be a battle mechanism.
-*** TODO Makefile: passing parameters for each part(server, client)
+*** DONE Makefile: passing parameters for each part(server, client)
     For a while should be used "make CFLAGS=-D[_SERVER_|_CLIENT_] [server|client]".
-
-    MR 20110415T06:14:34Z 003 <[AvataR]> 
-    build/server/%.o : src/%.c
-        $(CXX) $(CFLAGS) -DSERVER $@ $<
-    build/client/%.o : src/%.c
-        $(CXX) $(CFLAGS) -DCLIENT $@ $<                 
-    
-    MR 20110415T06:14:55Z 000 <пкщгяут[slacktop]> [AvataR] не подходит
-    MR 20110415T06:14:59Z 000 <[AvataR]> схуяле?
-    MR 20110415T06:15:01Z 000 <пкщгяут[slacktop]> у меня файл cdata.c общий
-    MR 20110415T06:15:10Z 000 <[AvataR]> ну и что?
-    MR 20110415T06:15:12Z 000 <пкщгяут[slacktop]> гм
-    MR 20110415T06:15:22Z 000 <пкщгяут[slacktop]> т.е ты предлагаешь создавать два разных обьектника?
-    MR 20110415T06:15:37Z 000 <[AvataR]> ну ты же создаешь два разных объектника? ))
-    MR 20110415T06:15:39Z 000 <пкщгяут[slacktop]> алсо, что значят $@ $< ?
-    MR 20110415T06:15:45Z 000 <пкщгяут[slacktop]> нет
-    MR 20110415T06:15:47Z 000 <[AvataR]> $@ -- цель
-    MR 20110415T06:15:53Z 000 <[AvataR]> $< - первый деп
   
 * Closer details
 ** Server
@@ -57,6 +39,14 @@
    Player see only its viewport's zone around it, so it should not know about
    events which happen outside of its visibility range, or for example
    connection event which concerns only one player who sends it.
+   
+   Only client fills `msg.header.id` and `msg.header.seq` fields,
+   server verify it and if necessary sends diff.
+
+   _VERY FUCKING IMPORTANT!_
+   In fact on each frame server sends to the clients information 
+   about objects which are in a player's viewport only. All world's 
+   state is never sent to the clients!
 
 *** todo for the server side.
 **** TODO Write function sync_mngr_func()
@@ -91,25 +81,19 @@
    That's all ;^).
 
 
-       client in mostly works like a server.
-     ,--------
+       Client in mostly works like a server.
+     ,---------------------------------------
      |
      +- msgqueue_mngr_thread: works like in a server part.
      |
-     +- ui_mngr_thread: just init ui.
+     +- ui_mngr_thread: init ui and start thread ui_event_mngr_func.
      |
-     +- recv_mngr_thread: receives messages from server and adds them to msgqueue.
-     |                    Also it must watch on each message type from batch and if
-     |                    necessary handles some of them and than sends result to the server.
+     +- ui_event_mngr_thread: on each frame read UI's event and send it to the server.
      |
-     +- send_mngr_thread: reads last event and sends message to server. TODO: cancel.
-     |
-     +- ui_read_thread: reads user's actions and updates last event variable. TODO: cancel.
-     |                  Must be implemented for each ui backend.
-     |
-     `- ui_update_thread: reads msgqueue and updates UI accordingly.
-                          Must be implemented for each ui backend. TODO: cancel.
-            
+     '- recv_mngr_thread: receives messages from server and adds them to msgqueue.
+                          Also it must watch on each message type from batch and if
+                          necessary handles some of them and than sends result to the server.
+     
 
 *** UI
     
@@ -149,8 +133,10 @@
      Loser                      0      11
     ----------------------------------------
 
+    History of notify line becomes visible when statistics is requested.
+
 *** Just a fucking todo for the client part
-**** TODO Write basic UI in ncurses
+**** DONE Write basic UI in ncurses
      Must be an opportunity to write UI in various toolkits(SDL, OGL, and etc).
 **** TODO Think about events(actions) that client can makes
      For example: to shoot, to run, to die, to take up an objects and so on.

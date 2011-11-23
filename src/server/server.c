@@ -1,6 +1,28 @@
+/* Copyright (c) 2011 Michael Nedokushev <grouzen.hexy@gmail.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h> /* time() */
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
@@ -8,26 +30,25 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#ifdef __FreeBSD__
+#include <netinet/in.h>
+#endif
 
 #include "../cdata.h"
+#include "server.h"
+#include "events.h"
 
-#define MAX_PLAYERS 16
-
-struct players_slot {
-    struct players_slot *next;
-    struct players_slot *prev;
-    struct player *p;
-};
-
-struct players_slots {
-    struct players_slot *root;
-    uint8_t count;
-    /* Describes what slots are free and occupied.
-       It is an array of pointers to slot,
-       if it equals NULL than slot is free.
-    */
-    struct players_slot *slots[MAX_PLAYERS];
-};
+struct msg_queue *msgqueue = NULL;
+struct players_slots *players = NULL;
+struct bonuses *bonuses = NULL;
+struct bullets *bullets = NULL;
+pthread_mutex_t msgqueue_mutex;
+pthread_cond_t queue_mngr_cond;
+pthread_t recv_mngr_thread, queue_mngr_thread;
+pthread_attr_t common_attr;
+struct ticks *queue_mngr_ticks;
+struct map *map;
+int sd;
 
 struct players_slots *players_init(void)
 {
@@ -58,7 +79,7 @@ void players_free(struct players_slots *slots)
     free(slots);
 }
 
-struct player *players_occupy(struct players_slots *slots, struct player *p)
+struct player *players_occupy(struct players_slots *slots, struct player *p) 
 {
     if(slots->count < MAX_PLAYERS - 1) {
         struct players_slot *oslot = slots->root;
@@ -132,30 +153,18 @@ enum player_enum_t players_release(struct players_slots *slots, uint8_t id)
     return PLAYERS_ERROR;
 }
 
-#define MSGQUEUE_INIT_SIZE 64
-
-struct msg_queue_node {
-    struct msg *data;
-    struct sockaddr_in *addr;
-};
-
-struct msg_queue {
-    struct msg_queue_node *nodes[MSGQUEUE_INIT_SIZE];
-    ssize_t top;
-};
-
 struct msg_queue *msgqueue_init(void)
 {
     struct msg_queue *q;
     int i;
 
     q = malloc(sizeof(struct msg_queue));
+    
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        q->nodes[i] = malloc(sizeof(struct msg_queue_node));
-        q->nodes[i]->data = malloc(sizeof(struct msg));
-        q->nodes[i]->addr = malloc(sizeof(struct sockaddr_in));
+        q->nodes[i].data = malloc(sizeof(struct msg));
+        q->nodes[i].addr = malloc(sizeof(struct sockaddr_in));
     }
-
+    
     q->top = -1;
 
     return q;
@@ -166,9 +175,8 @@ void msgqueue_free(struct msg_queue *q)
     int i;
 
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
-        free(q->nodes[i]->data);
-        free(q->nodes[i]->addr);
-        free(q->nodes[i]);
+        free(q->nodes[i].data);
+        free(q->nodes[i].addr);
     }
     
     free(q);
@@ -178,8 +186,9 @@ enum msg_queue_enum_t msgqueue_push(struct msg_queue *q, struct msg_queue_node *
 {
     if(q->top < MSGQUEUE_INIT_SIZE - 1) {
         q->top++;
-        memcpy(q->nodes[q->top]->addr, qnode->addr, sizeof(struct sockaddr_in));
-        memcpy(q->nodes[q->top]->data, qnode->data, sizeof(struct msg));
+        
+        memcpy(q->nodes[q->top].addr, qnode->addr, sizeof(struct sockaddr_in));
+        memcpy(q->nodes[q->top].data, qnode->data, sizeof(struct msg));
         
         return MSGQUEUE_OK;
     }
@@ -190,133 +199,348 @@ enum msg_queue_enum_t msgqueue_push(struct msg_queue *q, struct msg_queue_node *
 struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
 {
     if(q->top >= 0) {
-        return q->nodes[q->top--];
+        return &(q->nodes[q->top--]);
     }
 
     return NULL;
 }
 
-struct msg_queue *msgqueue = NULL;
-struct players_slots *players = NULL;
-pthread_mutex_t msgqueue_mutex;
-pthread_cond_t queue_mngr_cond;
-pthread_t recv_mngr_thread, queue_mngr_thread;
-pthread_attr_t common_attr;
-struct ticks *queue_mngr_ticks;
-int sd;
-
-void event_disconnect_server(void)
+void bullet_explode(struct bullet *b)
 {
-    struct players_slot *slot = players->root;
-    struct msg_batch msgbatch;
-    struct msg msg;
-
-    msg.type = MSGTYPE_DISCONNECT_SERVER;
-    msg.event.disconnect_server.stub = 1;
+    int w, h;
     
-    memset(&msgbatch, 0, sizeof(struct msg_batch));
-    msg_batch_push(&msgbatch, &msg);
-    while(slot != NULL) {
-        struct player *p = slot->p;
-        
-        sendto(sd, msgbatch.chunks, msgbatch.offset + 1,
-               0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
-
-        slot = slot->next;
-    }
-}
-
-void event_disconnect_client(struct msg_queue_node *qnode)
-{
-    struct players_slot *slot;
-    struct msg_batch msgbatch;
-    struct msg msg;
-
-    msg.type = MSGTYPE_DISCONNECT_NOTIFY;
-    if(players->slots[qnode->data->header.id] != NULL) {
-        strncpy((char *) msg.event.disconnect_notify.nick,
-                (char *) players->slots[qnode->data->header.id]->p->nick, NICK_MAX_LEN);
-    }
-
-    if(players_release(players, qnode->data->header.id) == PLAYERS_ERROR) {
-        printf("Couldn't remove the player from slots: %u\n", qnode->data->header.id);
-        
-        return;
-    }
-
-    printf("Player has been disconnected: %s\n", msg.event.disconnect_notify.nick);
-    
-    memset(&msgbatch, 0, sizeof(struct msg_batch));
-    msg_batch_push(&msgbatch, &msg);
-
-    slot = players->root;
-    while(slot != NULL) {
-        struct player *p = slot->p;
-        
-        sendto(sd, msgbatch.chunks, msgbatch.offset + 1,
-               0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
-
-        slot = slot->next;
-    }
-
-}
-
-void event_connect_ask(struct msg_queue_node *qnode)
-{
-    struct player player;
-    struct player *newplayer;
-    struct msg msg;
-    
-    player.addr = qnode->addr;
-    player.nick = qnode->data->event.connect_ask.nick;
-
-    /* We will send MSGTYPE_CONNECT_OK message's type to the client. */
-    msg.type = MSGTYPE_CONNECT_OK;
-    newplayer = players_occupy(players, &player);
-    
-    if(newplayer == NULL) {
-        struct msg_batch msgbatch;
-        
-        printf("There are no free slots. Server maintains maximum %u players\n", MAX_PLAYERS);
-
-        msg.event.connect_ok.ok = 0;
-
-        memset(&msgbatch, 0, sizeof(struct msg_batch));
-        msg_batch_push(&msgbatch, &msg);
-        sendto(sd, msgbatch.chunks, msgbatch.offset + 1,
-               0, (struct sockaddr *) qnode->addr, sizeof(struct sockaddr_in));
-    } else {
+    for(w = b->x - weapons[b->type].explode_radius, h = b->y - weapons[b->type].explode_radius;
+        w <= b->x + weapons[b->type].explode_radius;
+        w++, h++) {
         struct players_slot *slot = players->root;
         
-        printf("Player has been connected with nick: %s, total players: %u\n",
-               newplayer->nick, players->count);
+        if(w <= 0 || h <= 0 || w > map->width + 1 || h > map->height + 1) {
+            continue;
+        }
 
-        /* TODO: set seq. Set pos_x and pos_y. */
-                    
-        /* Set order number for the new player. */
-        msg.header.seq = 0;
-        msg.event.connect_ok.id = newplayer->id;
-        msg.event.connect_ok.ok = 1;
-
-        /* Push to the new player. */
-        msg_batch_push(&(newplayer->msgbatch), &msg);
-        /* Notify rest players about new player's connection. */
-        memset(&msg, 0, sizeof(struct msg));
-        msg.type = MSGTYPE_CONNECT_NOTIFY;
-        strncpy((char *) msg.event.connect_notify.nick, (char *) newplayer->nick, NICK_MAX_LEN);
-        while(slot != NULL) {
-            if(slot->p != newplayer) {
-                msg.header.seq = ++(slot->p->seq);
-                msg_batch_push(&(slot->p->msgbatch), &msg);
+        if(map->objs[h - 1][w - 1] == MAP_WALL) {
+            if(weapons[b->type].explode_map) {
+                map->objs[h - 1][w - 1] = MAP_EMPTY;
+                
+                event_map_explode(w - 1, h - 1);
             }
+
+            continue;
+        }
+        
+        while(slot != NULL) {
+            struct player *p = slot->p;
+
+            if(p->pos_x == w && p->pos_y == h) {
+                uint16_t damage;
+
+                srand((unsigned int) time(NULL));
+
+                damage = rand() % (weapons[b->type].damage_max - weapons[b->type].damage_min) + weapons[b->type].damage_min;
+                event_player_hit(p, b->player, damage);
+
+                break;
+            }
+            
             slot = slot->next;
         }
     }
 }
 
-/* This thread must do the only one
- * thing - recieves messages from many
- * clients and then pushs them to msgqueue.
+struct bullets *bullets_init(void)
+{
+    struct bullets *bullets;
+
+    bullets = malloc(sizeof(struct bullets));
+    bullets->root = NULL;
+    bullets->last = NULL;
+
+    return bullets;
+}
+
+void bullets_free(struct bullets *bullets)
+{
+    struct bullets_node *cbullet, *nbullet;
+
+    nbullet = bullets->root;
+
+    while(nbullet != NULL) {
+        cbullet = nbullet;
+        nbullet = nbullet->next;
+
+        free(cbullet->b);
+        free(cbullet);
+    }
+
+    free(bullets);
+}
+
+struct bullet *bullets_add(struct bullets *bullets, struct bullet *b)
+{
+    struct bullets_node *last, *new;
+
+    last = bullets->root == NULL ? bullets->root : bullets->last;
+
+    new = malloc(sizeof(struct bullets_node));
+    new->b = malloc(sizeof(struct bullet));
+    new->prev = last;
+    new->next = NULL;
+
+    new->b->player = b->player;
+    new->b->type = b->type;
+    new->b->x = b->x;
+    new->b->y = b->y;
+    new->b->sx = b->sx;
+    new->b->sy = b->sy;
+    new->b->direction = b->direction;
+    
+    bullets->last = new;
+
+    if(bullets->root == NULL) {
+        bullets->root = new;
+    }
+
+    return new->b;
+}
+
+enum bullets_enum_t bullets_remove(struct bullets *bullets, struct bullet *b)
+{
+    struct bullets_node *bullet = bullets->root;
+    
+    while(bullet != NULL) {
+        struct bullet *cb = bullet->b;
+
+        if(cb->x == b->x && cb->y == b->y &&
+           cb->type == b->type && cb->direction == b->direction &&
+           cb->sx == b->sx && cb->sy == b->sy) {
+            struct bullets_node *nbullet, *pbullet;
+
+            nbullet = bullet->next;
+            pbullet = bullet->prev;
+
+            if(nbullet != NULL) {
+                nbullet->prev = pbullet;
+            } else {
+                bullets->last = pbullet;
+            }
+
+            if(pbullet != NULL) {
+                pbullet->next = nbullet;
+            } else {
+                bullets->root = NULL;
+            }
+            
+            free(bullet->b);
+            free(bullet);
+            
+            return BULLETS_OK;
+        }
+
+        bullet = bullet->next;
+    }
+    
+    return BULLETS_ERROR;
+}
+
+void bullets_proceed(struct bullets *bullets)
+{
+    struct bullets_node *bullet = bullets->root;
+    
+    while(bullet != NULL) {
+        struct bullet *b = bullet->b;
+        struct weapon *w = &(weapons[b->type]);
+        int bx = b->x;
+        int by = b->y;
+        
+        for(;;) {
+            struct players_slot *slot = players->root;
+            
+            switch(b->direction) {
+            case DIRECTION_LEFT:
+                if(w->bullets_distance > 0 && b->x < bx - w->bullets_speed) {
+                    goto outer;
+                }
+
+                if(w->bullets_distance > 0 && b->x < b->sx - w->bullets_distance) {
+                    bullet = bullet->next;
+                    bullets_remove(bullets, b);
+                    goto outer;
+                }
+                
+                b->x--;
+                
+                break;
+            case DIRECTION_RIGHT:
+                if(w->bullets_distance > 0 && b->x > bx + w->bullets_speed) {
+                    goto outer;
+                }
+
+                if(w->bullets_distance > 0 && b->x > b->sx + w->bullets_distance) {
+                    bullet = bullet->next;
+                    bullets_remove(bullets, b);
+                    goto outer;
+                }
+                
+                b->x++;
+                
+                break;
+            case DIRECTION_UP:
+                if(w->bullets_distance > 0 && b->y < by - w->bullets_speed) {
+                    goto outer;
+                }
+
+                if(w->bullets_distance > 0 && b->y < b->sy - w->bullets_distance) {
+                    bullet = bullet->next;
+                    bullets_remove(bullets, b);
+                    goto outer;
+                }
+                
+                b->y--;
+                
+                break;
+            case DIRECTION_DOWN:
+                if(w->bullets_distance > 0 && b->y > by + w->bullets_speed) {
+                    goto outer;
+                }
+
+                if(w->bullets_distance > 0 && b->y > b->sy + w->bullets_distance) {
+                    bullet = bullet->next;
+                    bullets_remove(bullets, b);
+                    goto outer;
+                }
+                
+                b->y++;
+                
+                break;
+            default:
+                break;
+            }
+
+            if(b->y <= 0 || b->x <= 0 ||
+               b->y >= map->height - 1 || b->x >= map->width - 1 ||
+               map->objs[b->y - 1][b->x - 1] == MAP_WALL) {
+                bullet = bullet->next;
+                bullet_explode(b);
+                bullets_remove(bullets, b);
+                goto outer;
+            }
+
+            while(slot != NULL) {
+                struct player *p = slot->p;
+
+                if(p->pos_x == b->x && p->pos_y == b->y) {
+                    bullet = bullet->next;
+                    bullet_explode(b);
+                    bullets_remove(bullets, b);
+                    goto outer;
+                }
+
+                slot = slot->next;
+            }
+        }
+        // TODO: remove this hack
+        bullet = bullet->next;
+    outer:
+        continue;
+    }
+}
+
+struct bonuses *bonuses_init(void)
+{
+    struct bonuses *bonuses;
+
+    bonuses = malloc(sizeof(struct bonuses));
+    bonuses->root = NULL;
+    bonuses->count = 0;
+
+    return bonuses;
+}
+
+void bonuses_free(struct bonuses *bonuses)
+{
+    struct bonuses_node *cbonus, *nbonus;
+
+    nbonus = bonuses->root;
+    
+    while(nbonus != NULL) {
+        cbonus = nbonus;
+        nbonus = nbonus->next;
+
+        free(cbonus->b);
+        free(cbonus);
+    }
+
+    free(bonuses);
+}
+
+struct bonus *bonuses_search(struct bonuses *bonuses, uint16_t x, uint16_t y)
+{
+    struct bonuses_node *bonus = bonuses->root;
+
+    while(bonus != NULL) {
+        struct bonus *b = bonus->b;
+
+        if(b->x == x && b->y == y) {
+            return b;
+        }
+
+        bonus = bonus->next;
+    }
+
+    return NULL;
+}
+
+struct bonus *bonuses_add(struct bonuses *bonuses, struct bonus *b)
+{
+    struct bonuses_node *bonus = bonuses->root;
+    struct bonuses_node *pbonus = NULL;
+
+    for(;;) {
+        if(bonus == NULL) {
+            bonus = malloc(sizeof(struct bonuses_node));
+            bonus->prev = pbonus;
+            bonus->next = NULL;
+            bonus->b = malloc(sizeof(struct bonus));
+            memcpy(bonus->b, b, sizeof(struct bonus));
+
+            break;
+        }
+
+        pbonus = bonus;
+        bonus = bonus->next;
+    }
+
+    return bonus->b;
+}
+
+enum bonuses_enum_t bonuses_remove(struct bonuses *bonuses, struct bonus *b)
+{
+    struct bonuses_node *bonus = bonuses->root;
+
+    while(bonus != NULL) {
+        if(bonus->b == b) {
+            struct bonuses_node *prev, *next;
+
+            prev = bonus->prev;
+            next = bonus->next;
+
+            prev->next = next;
+            next->prev = prev;
+
+            free(bonus->b);
+            free(bonus);
+
+            return BONUSES_OK;
+        }
+
+        bonus = bonus->next;
+    }
+
+    return BONUSES_ERROR;
+}
+
+/* This thread must do the only one thing - recieves
+ * messages from many clients and then pushs them to msgqueue.
  */
 void *recv_mngr_func(void *arg)
 {
@@ -348,10 +572,12 @@ void *recv_mngr_func(void *arg)
         qnode->addr = &client_addr;
         pthread_mutex_lock(&msgqueue_mutex);
         if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
-            fprintf(stderr, "server: msgqueue_push: couldn't push data into queue.\n");
+            WARN("server: msgqueue_push: couldn't push data into queue.\n");
         }
         pthread_mutex_unlock(&msgqueue_mutex);
     }
+
+    return arg;
 }
     
 void *queue_mngr_func(void *arg)
@@ -360,17 +586,9 @@ void *queue_mngr_func(void *arg)
 
     sleep(1);
     
-    while("teh internetz exists") {
-        struct players_slot *slot = players->root;
-        
+    while("teh internetz exists") {        
         pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
 
-        /* Refresh msgbatch for each player. */
-        while(slot != NULL) {
-            memset(&(slot->p->msgbatch), 0, sizeof(struct msg_batch));
-            slot = slot->next;
-        }
-        
         /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
             /* TODO: check seq. */
@@ -382,24 +600,19 @@ void *queue_mngr_func(void *arg)
             case MSGTYPE_DISCONNECT_CLIENT:
                 event_disconnect_client(qnode);
                 break;
+            case MSGTYPE_WALK:
+                event_walk(qnode);
+                break;
+            case MSGTYPE_SHOOT:
+                event_shoot(qnode);
+                break;
             default:
-                printf("Unknown event\n");
+                WARN("Unknown event\n");
                 break;
             }
         }
 
-        /* Send diff to each player. */
-        slot = players->root;
-        while(slot != NULL) {
-            struct player *p = slot->p;
-            
-            if(MSGBATCH_SIZE(&(p->msgbatch)) > 0) {
-                sendto(sd, p->msgbatch.chunks, p->msgbatch.offset + 1,
-                       0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
-            }
-            
-            slot = slot->next;
-        }
+        send_events();
         
         pthread_mutex_unlock(&msgqueue_mutex);
     }
@@ -416,10 +629,13 @@ void quit(int signum)
     pthread_join(queue_mngr_thread, NULL);
     
     event_disconnect_server();
+    send_events();
     
     close(sd);
+    map_unload(map);
     msgqueue_free(msgqueue);
     players_free(players);
+    bonuses_free(bonuses);
     pthread_attr_destroy(&common_attr);
     pthread_mutex_destroy(&msgqueue_mutex);
     pthread_cond_destroy(&queue_mngr_cond);
@@ -438,9 +654,18 @@ int main(int argc, char **argv)
     signal(SIGINT, quit);
     signal(SIGHUP, quit);
     signal(SIGQUIT, quit);
-     
+
+    /* TODO: from config or args. */
+    map = map_load((uint8_t *) "default.map");
+    if(map == NULL) {
+        WARN("Map couldn't be loaded: %s.\n", "default.map");
+        exit(EXIT_FAILURE);
+    }
+    
     msgqueue = msgqueue_init();
     players = players_init();
+    bonuses = bonuses_init();
+    bullets = bullets_init();
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;

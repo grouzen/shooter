@@ -19,44 +19,23 @@
  * THE SOFTWARE.
  */
 
-#ifndef __BACKEND_H__
-#define __BACKEND_H__
+#ifndef __EVENTS_H__
+#define __EVENTS_H__
 
-/* UI event types. */
-enum {
-    UI_EVENT_NONE,
-    UI_EVENT_WALK_UP,
-    UI_EVENT_WALK_DOWN,
-    UI_EVENT_WALK_LEFT,
-    UI_EVENT_WALK_RIGHT,
-    UI_EVENT_SHOOT
-};
-
-struct screen {
-    uint16_t width;
-    uint16_t height;
-    uint16_t offset_x;
-    uint16_t offset_y;
-};
-
-enum ui_enum_t {
-    UI_ERROR = 0,
-    UI_OK
-};
-
-/* Backend's API. These functions should implement each backend. */
-void ui_refresh(void);
-int ui_get_event(void);
-enum ui_enum_t ui_init(void);
-void ui_free(void);
-void ui_notify_line_set(char *format, ...);
-
-#define NOTIFY_LINE_HISTORY_MAX 8
-#define NOTIFY_LINE_MAX_LEN 64
-
-/* Export some global variables from client.c file. */
-extern struct player *player;
-extern struct map *map;
-extern pthread_mutex_t map_mutex, player_mutex;
+void event_enemy_position(struct player*, uint16_t, uint16_t);
+void event_player_position(struct player*);
+void event_player_killed(struct player*, struct player*);
+void event_player_hit(struct player*, struct player*, uint16_t);
+void event_map_explode(uint16_t, uint16_t);
+void event_on_bonus(struct player*, struct bonus*);
+void event_disconnect_server(void);
+void event_disconnect_notify(uint8_t*);
+void event_connect_notify(struct player*);
+void event_connect_ok(struct player*, uint8_t);
+void send_events(void);
+void event_disconnect_client(struct msg_queue_node*);
+void event_connect_ask(struct msg_queue_node*);
+void event_shoot(struct msg_queue_node*);
+void event_walk(struct msg_queue_node*);
 
 #endif
