@@ -356,8 +356,8 @@ void *recv_mngr_func(void *arg)
             continue;
         }
         
-        msgbatch.offset = (buf[0] * sizeof(struct msg));
-        memcpy(msgbatch.chunks, buf, msgbatch.offset + 1);
+        msgbatch.size = (buf[0] * sizeof(struct msg));
+        memcpy(msgbatch.chunks, buf, msgbatch.size + 1);
 
         pthread_mutex_lock(&msgqueue_mutex);
         while((chunk = msg_batch_pop(&msgbatch)) != NULL) {

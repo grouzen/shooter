@@ -328,8 +328,8 @@ void msg_unpack(uint8_t *buf, struct msg *m)
 enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
 {
     if(MSGBATCH_SIZE(b) < MSGBATCH_INIT_SIZE) {
-        msg_pack(m, &(b->chunks[b->offset + 1]));
-        b->offset += sizeof(struct msg);
+        msg_pack(m, &(b->chunks[b->size + 1]));
+        b->size += sizeof(struct msg);
         MSGBATCH_SIZE(b)++;
         
         return MSGBATCH_OK;
@@ -341,10 +341,10 @@ enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
 uint8_t *msg_batch_pop(struct msg_batch *b)
 {
     if(MSGBATCH_SIZE(b) > 0) {
-        b->offset -= sizeof(struct msg);
+        b->size -= sizeof(struct msg);
         MSGBATCH_SIZE(b)--;
         
-        return &(b->chunks[b->offset + 1]);
+        return &(b->chunks[b->size + 1]);
     }
 
     return NULL;

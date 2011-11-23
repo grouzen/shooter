@@ -230,12 +230,8 @@ enum msg_batch_enum_t {
 
 struct msg_batch {
     uint8_t chunks[MSGBATCH_BYTES];
-    /* offset describes current offset in bytes
-     * from the beginning of the chunks array
-     * without first byte which describes number
-     * of occupied chunks.
-     */
-    uint16_t offset;
+    /* size is number of bytes in chunks[] occupied by data */
+    uint16_t size;
 };
 
 #define MSGBATCH_SIZE(b) ((b)->chunks[0])
