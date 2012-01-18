@@ -1,2 +1,6 @@
 *  How 'bout moving with arrows but shooting with wasd (or vice-versa)?
    Currently it's quite hard to figure out which way you'll fire.
+
+*  We may use first two lines in map to declare destroyable and undestroyable
+   elements. That would help artists to create maps they want not being
+   constrained by some hardcoded standard.

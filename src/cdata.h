@@ -58,7 +58,7 @@
      (y) <= (py) + PLAYER_VIEWPORT_HEIGHT / 2)
         
 
-/* Each object on the map represented by ascii symbol. */
+/* Each object on the map is represented by ascii symbol. */
 #define MAP_EMPTY ' '
 #define MAP_WALL '#'
 #define MAP_PLAYER '@'
@@ -66,6 +66,7 @@
 #define MAP_RESPAWN '!'
 #define MAP_NAME_MAX_LEN 32
 
+/* TODO: rewrite this comment */
 /* On server side `**objs` can contain only MAP_WALL and MAP_EMPTY symbols,
  * because information about bullets, players, etc is in actual state and
  * full detailed on arrays, structes and lists.
@@ -75,8 +76,8 @@
 #ifdef _SERVER_
 #define MAP_RESPAWNS_MAX 16
 
-/* This struct needed for optimisation of searching
- * respawn points each time when new player connected.
+/* This struct is needed to optimise a search of respawn points when new player
+ * connects.
  */
 struct map_respawn {
     uint16_t w;
@@ -85,9 +86,7 @@ struct map_respawn {
 #endif
 
 struct map {
-    /* On client part if name doesn't set,
-     * means that map is not loaded yet.
-     */
+    /* On client's side: if name isn't set, then map isn't loaded yet */
     uint8_t name[MAP_NAME_MAX_LEN];
     uint8_t **objs;
     uint16_t width;
@@ -98,7 +97,7 @@ struct map {
 #endif
 };
 
-/* Structures which describes message body. */
+/* Structures that describe message body. */
 enum {
     //MSGTYPE_NONE = -1,
     MSGTYPE_WALK = 0,
@@ -210,14 +209,16 @@ struct msg {
     } event;
 };
 
-/* msg_batch:
- * Optimization for minimizing number of system calls;
+/* msg_batch is an optimisation to minimize number of socket_send() calls.
+ * Instead of invoking it for each change in the world, we first pack those
+ * changes to the structure and then send it using single syscall.
+ *
+ * Interaction between client and server goes like this:
+ *
  * client --| struct msg |--> server
  * server --| struct msg_batch |--> client
- * Thus we call socket_send() only one time
- * when sending difference between world's states.
  *
- * First byte of the chunks array is size,
+ * First byte of the chunks[] is number of chunks contained in the batch,
  * therefore `struct msg_batch` can contains maximum 255 chunks.
  */
 #define MSGBATCH_INIT_SIZE 255
@@ -344,15 +345,15 @@ struct players_slot {
 struct players_slots {
     struct players_slot *root;
     uint8_t count;
-    /* Describes what slots are free and occupied.
-       It is an array of pointers to slot,
-       if it equals NULL than slot is free.
+    /* Describes which slots are free and which are occupied.
+       It is an array of pointers to slots.
+       If pointer is NULL then slot is free.
     */
     struct players_slot *slots[MAX_PLAYERS];
 };
 #endif
 
-/* For collisions detection on server and client(movement prediction). */
+/* For collisions detection on server and client (movement prediction). */
 enum collision_enum_t {
     COLLISION_NONE = 0,
     COLLISION_WALL,
@@ -368,6 +369,7 @@ struct ticks {
     uint64_t count;
 };
 
+/* TODO: *understand* and rewrite this comment. */
 /* For now I've different implementation
    of the msgqueue in client and server.
 */
