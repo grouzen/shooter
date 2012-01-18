@@ -1,4 +1,7 @@
-/* Copyright (c) 2011 Michael Nedokushev <grouzen.hexy@gmail.com>
+/* Copyright (c) 2011, 2012 Michael Nedokushev <grouzen.hexy@gmail.com>
+ * Copyright (c) 2011, 2012 Alexander Batischev <eual.jp@gmail.com>
+ *
+ * Bugs in the function ui_screen_update() were fixed by Jods.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -147,6 +150,8 @@ static void ui_status_line_update(void)
     int x;
     char line[screen.width];
 
+    pthread_mutex_lock(&player_mutex);
+    
     snprintf(line, screen.width,
              "hp: %u ar: %u cw: %s   g: %u r: %u",
              player->hp,
@@ -160,59 +165,72 @@ static void ui_status_line_update(void)
         mvwaddch(window, 1, x, ' ');
     }
 
+    pthread_mutex_unlock(&player_mutex);
+    
     mvwaddstr(window, 1, 2, line);
+}
+
+// TODO: rewrite to macros
+inline static bool check_bounds(int x, int y)
+{
+    return (x >= 0 && y >= 0 &&
+            x < map->width && y < map->height);
+}
+
+inline static int max(int a, int b)
+{
+    return a > b ? a : b;
 }
 
 static void ui_screen_update(void)
 {
-    int w, h, x, y;
-    
+    int h, w, x, y;
+  
     /* Update screen's offsets. */
     pthread_mutex_lock(&player_mutex);
     pthread_mutex_lock(&map_mutex);
-    
-    if(player->pos_x <= screen.width / 2) {
+
+    if(screen.width > map->width || player->pos_x <= screen.width / 2) {
         screen.offset_x = 0;
-    } else if(player->pos_x >= map->width - screen.width / 2) {
-        screen.offset_x = map->width - screen.width;
     } else {
         screen.offset_x = player->pos_x - screen.width / 2;
     }
 
-    if(player->pos_y <= screen.height / 2) {
+    if(screen.height > map->height || player->pos_y <= screen.height / 2) {
         screen.offset_y = 0;
-    } else if(player->pos_y >= map->height - screen.height / 2) {
-        screen.offset_y = map->height - screen.height + 2;
     } else {
         screen.offset_y = player->pos_y - screen.height / 2;
     }
-    
+
     /* TODO: dispatch and colorize. */
-    for(h = 2, y = screen.offset_y; h < screen.height; h++, y++) {
-        for(w = 1, x = screen.offset_x; w < screen.width + 1; w++, x++) {
-            uint8_t o = map->objs[y][x];
+    h = max((screen.height - map->height) / 2, 2);
+    for(y = screen.offset_y; h < screen.height; h++, y++) {
+        w = max((screen.width - map->width) / 2, 1);
+        for(x = screen.offset_x; w < screen.width + 1; w++, x++) {
+            uint8_t o = check_bounds(x, y) ? map->objs[y][x] : MAP_EMPTY;
+            chtype type;
             
             switch(o) {
             case MAP_PLAYER:
-                mvwaddch(window, h, w, UI_MAP_ENEMY);
+                if(player->pos_y == 1 + y && player->pos_x == 1 + x)
+                    type = UI_MAP_PLAYER;
+                else
+                    type = UI_MAP_ENEMY;
                 break;
             case MAP_WALL:
-                if(IN_PLAYER_VIEWPORT(x, y, player->pos_x, player->pos_y)) {
-                    mvwaddch(window, h, w, UI_MAP_WALL);
-                } else {
-                    mvwaddch(window, h, w, UI_MAP_WALL_FOG);
-                }
-                
+                if(IN_PLAYER_VIEWPORT(x, y, player->pos_x, player->pos_y))
+                    type = UI_MAP_WALL;
+                else
+                    type = UI_MAP_WALL_FOG;
                 break;
             default:
-                mvwaddch(window, h, w, UI_MAP_EMPTY);
+                type = UI_MAP_EMPTY;
                 break;
             }
+
+            mvwaddch(window, h, w, type);
         }
     }
-    
-    mvwaddch(window, player->pos_y + 1 - screen.offset_y,
-             player->pos_x - screen.offset_x, UI_MAP_PLAYER);
     
     pthread_mutex_unlock(&map_mutex);
     pthread_mutex_unlock(&player_mutex);
@@ -234,6 +252,12 @@ void ui_refresh(void)
 enum ui_enum_t ui_init(void)
 {
     char key;
+
+    /*
+     * Set default foreground and background colors
+     * TODO: use attrset.
+     */
+    setenv("COLORFGBG", "7;0", 1);
     
     /* initializing ncurses mode */
     initscr();
