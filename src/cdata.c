@@ -121,7 +121,7 @@ static void msgtype_enemy_position_pack(struct msg *m, uint8_t *buf)
 
 static void msgtype_shoot_pack(struct msg *m, uint8_t *buf)
 {
-    *buf++ = m->event.shoot.stub;
+    *buf++ = m->event.shoot.direction;
 }
 
 static void msgtype_connect_ask_pack(struct msg *m, uint8_t *buf)
@@ -210,7 +210,7 @@ static void msgtype_enemy_position_unpack(uint8_t *buf, struct msg *m)
 
 static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
 {
-    m->event.shoot.stub = (uint8_t) *buf++;
+    m->event.shoot.direction = (uint8_t) *buf++;
 }
 
 static void msgtype_connect_ask_unpack(uint8_t *buf, struct msg *m)

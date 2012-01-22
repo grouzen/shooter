@@ -334,7 +334,7 @@ void event_shoot(struct msg_queue_node *qnode)
         .y = p->pos_y,
         .sx = p->pos_x,
         .sy = p->pos_y,
-        .direction = p->direction
+        .direction = qnode->data->event.shoot.direction
     };
 
     if(p->weapons.bullets[p->weapons.current] > 0) {

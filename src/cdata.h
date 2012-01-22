@@ -141,7 +141,7 @@ struct msgtype_enemy_position {
 };
 
 struct msgtype_shoot {
-    uint8_t stub;
+    uint8_t direction;
 };
 
 struct msgtype_connect_ask {

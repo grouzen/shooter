@@ -108,8 +108,17 @@ int ui_get_event(void)
     case 's':
         return UI_EVENT_WALK_DOWN;
         break;
-    case ' ':
-        return UI_EVENT_SHOOT;
+    case KEY_UP:
+        return UI_EVENT_SHOOT_UP;
+        break;
+    case KEY_DOWN:
+        return UI_EVENT_SHOOT_DOWN;
+        break;
+    case KEY_LEFT:
+        return UI_EVENT_SHOOT_LEFT;
+        break;
+    case KEY_RIGHT:
+        return UI_EVENT_SHOOT_RIGHT;
         break;
     default:
         return UI_EVENT_NONE;
@@ -185,7 +194,7 @@ inline static int max(int a, int b)
 static void ui_screen_update(void)
 {
     int h, w, x, y;
-  
+
     /* Update screen's offsets. */
     pthread_mutex_lock(&player_mutex);
     pthread_mutex_lock(&map_mutex);
@@ -251,7 +260,7 @@ void ui_refresh(void)
         
 enum ui_enum_t ui_init(void)
 {
-    char key;
+    int key;
 
     /*
      * Set default foreground and background colors
