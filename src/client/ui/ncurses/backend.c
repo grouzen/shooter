@@ -179,20 +179,11 @@ static void ui_status_line_update(void)
     mvwaddstr(window, 1, 2, line);
 }
 
-// TODO: rewrite to macros
-inline static bool check_bounds(int x, int y)
-{
-    return (x >= 0 && y >= 0 &&
-            x < map->width && y < map->height);
-}
-
-inline static int max(int a, int b)
-{
-    return a > b ? a : b;
-}
-
 static void ui_screen_update(void)
 {
+#define CHECK_BOUNDS(x, y) (x >= 0 && y >= 0 && x < map->width && y < map->height)
+#define MAX(a, b) (a > b ? a : b)
+     
     int h, w, x, y;
 
     /* Update screen's offsets. */
@@ -212,15 +203,16 @@ static void ui_screen_update(void)
     }
 
     /* TODO: dispatch and colorize. */
-    h = max((screen.height - map->height) / 2, 2);
+    h = MAX((screen.height - map->height) / 2, 2);
     for(y = screen.offset_y; h < screen.height; h++, y++) {
-        w = max((screen.width - map->width) / 2, 1);
+        w = MAX((screen.width - map->width) / 2, 1);
         for(x = screen.offset_x; w < screen.width + 1; w++, x++) {
-            uint8_t o = check_bounds(x, y) ? map->objs[y][x] : MAP_EMPTY;
+            uint8_t o = CHECK_BOUNDS(x, y) ? map->objs[y][x] : MAP_EMPTY;
             chtype type;
             
             switch(o) {
             case MAP_PLAYER:
+                // TODO: fix the bug. Player's type often changes from UI_MAP_PLAYER to UI_MAP_ENEMY and vice versa.
                 if(player->pos_y == 1 + y && player->pos_x == 1 + x)
                     type = UI_MAP_PLAYER;
                 else
@@ -240,6 +232,9 @@ static void ui_screen_update(void)
             mvwaddch(window, h, w, type);
         }
     }
+
+#undef CHECK_BOUNDS
+#undef MAX
     
     pthread_mutex_unlock(&map_mutex);
     pthread_mutex_unlock(&player_mutex);

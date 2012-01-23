@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Michael Nedokushev <grouzen.hexy@gmail.com>
+/* Copyright (c) 2011, 2012 Michael Nedokushev <grouzen.hexy@gmail.com>
  * Copyright (c) 2011, 2012 Alexander Batischev <eual.jp@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -139,16 +139,23 @@ void event_connect_ok(struct msg *m)
     uint8_t *mapname = m->event.connect_ok.mapname;
     
     if(m->event.connect_ok.ok) {
+        /* TODO: fix bug with map.
+           Now client loads the map and use it as is,
+           but map is changing during the game, thus client
+           must load the map always from server.
+        */
         pthread_mutex_lock(&map_mutex);
         map = map_load(mapname);
         pthread_mutex_unlock(&map_mutex);
         if(map == NULL) {
-            WARN("Map couldn't be loaded: %s. Trying to load it from server...\n", mapname);
+            WARN("Map couldn't be loaded: %s. Trying to load it from server...\n",
+                 mapname);
             /* TODO: call event_map_load_ask() which calls map_load(). */
             quit(1);
         }
         
-        ui_notify_line_set("Connected with id: %u, map: %s.", m->event.connect_ok.id, (char *) mapname);
+        ui_notify_line_set("Connected with id: %u, map: %s.",
+                           m->event.connect_ok.id, (char *) mapname);
         
         pthread_mutex_lock(&player_mutex);
         player->id = m->event.connect_ok.id;
@@ -420,8 +427,6 @@ void *queue_mngr_func(void *arg)
 
         pthread_mutex_lock(&msgqueue_mutex);
         pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
-        
-        //DEBUG("queue_mngr_func() get signal.\n");
         
         /* Clean map from players, bullets, bonuses and other objects. */
         if(map != NULL) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Michael Nedokushev <grouzen.hexy@gmail.com>
+/* Copyright (c) 2011, 2012 Michael Nedokushev <grouzen.hexy@gmail.com>
  * Copyright (c) 2011, 2012 Alexander Batischev <eual.jp@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -164,7 +164,8 @@ void event_disconnect_notify(uint8_t *nick)
     struct players_slot *slot = players->root;
     
     msg.type = MSGTYPE_DISCONNECT_NOTIFY;
-    strncpy((char *) msg.event.disconnect_notify.nick, (char *) nick, NICK_MAX_LEN);    
+    strncpy((char *) msg.event.disconnect_notify.nick,
+            (char *) nick, NICK_MAX_LEN);    
     
     slot = players->root;
     while(slot != NULL) {
@@ -183,7 +184,8 @@ void event_connect_notify(struct player *p)
     struct players_slot *slot = players->root;
     
     msg.type = MSGTYPE_CONNECT_NOTIFY;
-    strncpy((char *) msg.event.connect_notify.nick, (char *) p->nick, NICK_MAX_LEN);
+    strncpy((char *) msg.event.connect_notify.nick,
+            (char *) p->nick, NICK_MAX_LEN);
     
     while(slot != NULL) {
         struct player *lp = slot->p;
@@ -203,10 +205,16 @@ void event_connect_ok(struct player *p, uint8_t ok)
     
     p->seq++;
 
+
+    /* TODO: change this event.
+       Map name is not neccesary any more, because map
+       must be loaded from server each time.
+     */
     msg.type = MSGTYPE_CONNECT_OK;
     msg.event.connect_ok.id = p->id;
     msg.event.connect_ok.ok = ok;
-    strncpy((char *) msg.event.connect_ok.mapname, (char *) map->name, MAP_NAME_MAX_LEN);
+    strncpy((char *) msg.event.connect_ok.mapname,
+            (char *) map->name, MAP_NAME_MAX_LEN);
     msg_batch_push(&(p->msgbatch), &msg);
 }
 

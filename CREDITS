@@ -1,0 +1,8 @@
+* Michael Nedokushev <grouzen.hexy@gmail.com>
+  Main developer.
+
+* Alexander Batischev <eual.jp@gmail.com>
+  Ideas generator and developer.
+
+* Jods <no@email>
+  Author of patch for function ncurses.c/ui_screen_update()

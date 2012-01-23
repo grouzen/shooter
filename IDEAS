@@ -1,3 +1,5 @@
+# -*- mode: Org; -*-
+
 *  We may use first two lines in map to declare destroyable and undestroyable
    elements. That would help artists to create maps they want not being
    constrained by some hardcoded standard.
