@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <error.h>
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -45,7 +46,6 @@ pthread_attr_t common_attr;
 pthread_mutex_t msgqueue_mutex, map_mutex, player_mutex;
 pthread_cond_t queue_mngr_cond;
 sem_t queue_mngr_sem;
-struct sockaddr_in server_addr;
 struct msg_queue *msgqueue = NULL;
 struct player *player = NULL;
 struct map *map = NULL;
@@ -109,8 +109,7 @@ void send_event(struct msg *m)
 
     msg_pack(m, buf);
     
-    sendto(sd, buf, sizeof(struct msg),
-           0, (struct sockaddr *) &server_addr, sizeof(struct sockaddr_in));
+    write(sd, buf, sizeof(struct msg));
 }
 
 void event_disconnect_client(void)
@@ -379,7 +378,7 @@ void *recv_mngr_func(void *arg)
         uint8_t *chunk, id;
         
         if(recvfrom(sd, buf, sizeof(struct msg_batch), 0, NULL, NULL) < 0) {
-            perror("client: recvfrom");
+            perror("recvfrom");
             continue;
         }
         
@@ -392,7 +391,7 @@ void *recv_mngr_func(void *arg)
             
             msg_unpack(chunk, &m);
             if(msgqueue_push(msgqueue, &m) == MSGQUEUE_ERROR) {
-                WARN("client: msgqueue_push: couldn't push data into queue.\n");
+                WARN("msgqueue_push: couldn't push data into queue.\n");
             } else {
                 pthread_mutex_lock(&player_mutex);
                 player->seq++;
@@ -524,8 +523,34 @@ void quit(int signum)
 
 int main(int argc, char **argv)
 {
+    struct addrinfo *addr_res = NULL;
+    struct addrinfo hints, *addr = NULL;
+    int errcode;
+
+    memset(&hints, '\0', sizeof(hints));
+    hints.ai_flags = AI_ADDRCONFIG;
+    hints.ai_socktype = SOCK_DGRAM;
     // TODO: get the address from argv or config, or other place
-    struct hostent *host = gethostbyname((char *) "localhost");
+    errcode = getaddrinfo("localhost", "6006", &hints, &addr_res);
+    if(errcode != 0 ) {
+        error(EXIT_FAILURE, 0, "getaddrinfo: %s", gai_strerror(errcode));
+    }
+    addr = addr_res;
+    for(; addr != NULL; addr = addr->ai_next) {
+        sd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+        if(sd < 0) {
+            perror("socket");
+            exit(EXIT_FAILURE);
+        } else {
+            if(connect(sd, addr->ai_addr, addr->ai_addrlen) != 0) {
+                perror("connect");
+                close(sd);
+            } else {
+                break;
+            }
+        }
+    }
+    freeaddrinfo(addr_res);
 
     signal(SIGINT, quit);
     signal(SIGHUP, quit);
@@ -533,17 +558,6 @@ int main(int argc, char **argv)
 
     msgqueue = msgqueue_init();
     player = player_init();
-    
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(6006);
-    server_addr.sin_addr = *((struct in_addr *) host->h_addr);
-
-    sd = socket(server_addr.sin_family, SOCK_DGRAM, 0);
-    if(sd < 0) {
-        perror("client: socket");
-        exit(EXIT_FAILURE);
-    }
 
     pthread_mutex_init(&msgqueue_mutex, NULL);
     pthread_mutex_init(&map_mutex, NULL);

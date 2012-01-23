@@ -220,7 +220,7 @@ struct msg {
  * server --| struct msg_batch |--> client
  *
  * First byte of the chunks[] is number of chunks contained in the batch,
- * therefore `struct msg_batch` can contains maximum 255 chunks.
+ * therefore `struct msg_batch` can contain up to 255 chunks.
  */
 #define MSGBATCH_INIT_SIZE 255
 #define MSGBATCH_BYTES (sizeof(struct msg) * MSGBATCH_INIT_SIZE + sizeof(uint8_t))
@@ -315,7 +315,7 @@ enum {
 
 struct player {
 #ifdef _SERVER_
-    struct sockaddr_in *addr;
+    struct sockaddr_storage *addr;
     struct msg_batch msgbatch;
 #endif
     uint8_t id; /* slot's number. */

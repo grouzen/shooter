@@ -403,7 +403,7 @@ struct player *player_init(void)
     memset(p, 0, sizeof(struct player));
     p->nick = malloc(sizeof(uint8_t) * NICK_MAX_LEN);
 #ifdef _SERVER_
-    p->addr = malloc(sizeof(struct sockaddr_in));
+    p->addr = malloc(sizeof(struct sockaddr_storage));
 #endif
     p->hp = 100;
     p->armor = 50;
