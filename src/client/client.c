@@ -234,7 +234,10 @@ void event_shoot(void)
 {
     struct msg msg;
     
+    pthread_mutex_lock(&player_mutex);
     msg.type = MSGTYPE_SHOOT;
+    msg.event.shoot.direction = player->direction;
+    pthread_mutex_unlock(&player_mutex);
 
     send_event(&msg);
 }
@@ -288,7 +291,10 @@ void *ui_event_mngr_func(void *arg)
             player->direction = DIRECTION_DOWN;
             player->pos_y++;
             break;
-        case UI_EVENT_SHOOT:
+        case UI_EVENT_SHOOT_UP:
+        case UI_EVENT_SHOOT_DOWN:
+        case UI_EVENT_SHOOT_LEFT:
+        case UI_EVENT_SHOOT_RIGHT:
             if(player->weapons.bullets[player->weapons.current] > 0) {
                 (player->weapons.bullets[player->weapons.current])--;
             }
@@ -314,7 +320,20 @@ void *ui_event_mngr_func(void *arg)
 
             event_walk();
             break;
-        case UI_EVENT_SHOOT:
+        case UI_EVENT_SHOOT_UP:
+            player->direction = DIRECTION_UP;
+            event_shoot();
+            break;
+        case UI_EVENT_SHOOT_DOWN:
+            player->direction = DIRECTION_DOWN;
+            event_shoot();
+            break;
+        case UI_EVENT_SHOOT_LEFT:
+            player->direction = DIRECTION_LEFT;
+            event_shoot();
+            break;
+        case UI_EVENT_SHOOT_RIGHT:
+            player->direction = DIRECTION_RIGHT;
             event_shoot();
             break;
         default:
@@ -357,8 +376,8 @@ void *recv_mngr_func(void *arg)
             continue;
         }
         
-        msgbatch.offset = (buf[0] * sizeof(struct msg));
-        memcpy(msgbatch.chunks, buf, msgbatch.offset + 1);
+        msgbatch.size = (buf[0] * sizeof(struct msg));
+        memcpy(msgbatch.chunks, buf, msgbatch.size + 1);
 
         pthread_mutex_lock(&msgqueue_mutex);
         while((chunk = msg_batch_pop(&msgbatch)) != NULL) {

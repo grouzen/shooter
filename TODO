@@ -67,6 +67,9 @@
 
 ** Client
 
+   Client (client.c) should implement some CLI parameters parsing so we can set
+   nickname and servername and port.
+
    First thread draws the user interface and sends a data to the server.
    Second recieves a data and sends the signal to the first.
 

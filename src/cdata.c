@@ -34,9 +34,9 @@
 
 /* Bonuses. */
 struct weapon weapons[WEAPON_SLOTS_MAX] = {
-    /*   NAME         INDEX    DMAX   DMIN   BSPEED   BDIST   BCOUNT   EMAP   ERAD */
-    {   "gun",   WEAPON_GUN,     8,     2,     0,       0,     100,     1,      0  },
-    {  "rocket", WEAPON_ROCKET, 90,    40,     3,       0,      10,     1,      0  }
+    /*   NAME         INDEX    DMAX  DMIN  BSPEED  BDIST  BCOUNT  EMAP  ERAD */
+    {   "gun",   WEAPON_GUN,     8,    2,    0,      0,    100,    1,    0  },
+    {  "rocket", WEAPON_ROCKET, 90,   40,    3,      0,     10,    1,    0  }
 };
 
 struct health healths[] = {
@@ -76,9 +76,8 @@ static uint16_t unpack16_int(uint8_t *buf)
     return (buf[0] << 8) | buf[1];
 }
 
-/* Here we have a couple routines for
- * packing subtypes(member `event')
- * of the structure `msg'.
+/* Here we have a couple of routines for packing subtypes (member `event') of
+ * the structure `msg'.
  */
 static void msgtype_walk_pack(struct msg *m, uint8_t *buf)
 {
@@ -122,7 +121,7 @@ static void msgtype_enemy_position_pack(struct msg *m, uint8_t *buf)
 
 static void msgtype_shoot_pack(struct msg *m, uint8_t *buf)
 {
-    *buf++ = m->event.shoot.stub;
+    *buf++ = m->event.shoot.direction;
 }
 
 static void msgtype_connect_ask_pack(struct msg *m, uint8_t *buf)
@@ -135,7 +134,8 @@ static void msgtype_connect_ok_pack(struct msg *m, uint8_t *buf)
     *buf++ = m->event.connect_ok.ok;
     *buf++ = m->event.connect_ok.id;
 
-    strncpy((char *) buf, (char *) m->event.connect_ok.mapname, MAP_NAME_MAX_LEN);
+    strncpy((char *) buf,
+        (char *) m->event.connect_ok.mapname, MAP_NAME_MAX_LEN);
 }
 
 static void msgtype_connect_notify_pack(struct msg *m, uint8_t *buf)
@@ -155,7 +155,8 @@ static void msgtype_disconnect_client_pack(struct msg *m, uint8_t *buf)
 
 static void msgtype_disconnect_notify_pack(struct msg *m, uint8_t *buf)
 {
-    strncpy((char *) buf, (char *) m->event.disconnect_notify.nick, NICK_MAX_LEN);
+    strncpy((char *) buf,
+        (char *) m->event.disconnect_notify.nick, NICK_MAX_LEN);
 }
 
 static void msgtype_on_bonus_pack(struct msg *m, uint8_t *buf)
@@ -209,7 +210,7 @@ static void msgtype_enemy_position_unpack(uint8_t *buf, struct msg *m)
 
 static void msgtype_shoot_unpack(uint8_t *buf, struct msg *m)
 {
-    m->event.shoot.stub = (uint8_t) *buf++;
+    m->event.shoot.direction = (uint8_t) *buf++;
 }
 
 static void msgtype_connect_ask_unpack(uint8_t *buf, struct msg *m)
@@ -222,7 +223,8 @@ static void msgtype_connect_ok_unpack(uint8_t *buf, struct msg *m)
     m->event.connect_ok.ok = (uint8_t) *buf++;
     m->event.connect_ok.id = (uint8_t) *buf++;
 
-    strncpy((char *) m->event.connect_ok.mapname, (char *) buf, MAP_NAME_MAX_LEN);
+    strncpy((char *) m->event.connect_ok.mapname,
+        (char *) buf, MAP_NAME_MAX_LEN);
 }
 
 static void msgtype_connect_notify_unpack(uint8_t *buf, struct msg *m)
@@ -242,7 +244,8 @@ static void msgtype_disconnect_client_unpack(uint8_t *buf, struct msg *m)
 
 static void msgtype_disconnect_notify_unpack(uint8_t *buf, struct msg *m)
 {
-    strncpy((char *) m->event.disconnect_notify.nick, (char *) buf, NICK_MAX_LEN);
+    strncpy((char *) m->event.disconnect_notify.nick,
+        (char *) buf, NICK_MAX_LEN);
 }
 
 static void msgtype_on_bonus_unpack(uint8_t *buf, struct msg *m)
@@ -259,9 +262,8 @@ static void msgtype_map_explode_unpack(uint8_t *buf, struct msg *m)
     buf += 2;
 }
 
-/* Because I hate switches and all these condition statements
- * I prefer to use calls table. They must be synced with enum
- * declared in cdata.h.
+/* Because I hate switches and all these condition statements I prefer to use
+ * calls table. It must be synced with enum declared in cdata.h.
  */
 intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_walk_pack,
@@ -329,8 +331,8 @@ void msg_unpack(uint8_t *buf, struct msg *m)
 enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
 {
     if(MSGBATCH_SIZE(b) < MSGBATCH_INIT_SIZE) {
-        msg_pack(m, &(b->chunks[b->offset + 1]));
-        b->offset += sizeof(struct msg);
+        msg_pack(m, &(b->chunks[b->size + 1]));
+        b->size += sizeof(struct msg);
         MSGBATCH_SIZE(b)++;
         
         return MSGBATCH_OK;
@@ -342,15 +344,16 @@ enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
 uint8_t *msg_batch_pop(struct msg_batch *b)
 {
     if(MSGBATCH_SIZE(b) > 0) {
-        b->offset -= sizeof(struct msg);
+        b->size -= sizeof(struct msg);
         MSGBATCH_SIZE(b)--;
         
-        return &(b->chunks[b->offset + 1]);
+        return &(b->chunks[b->size + 1]);
     }
 
     return NULL;
 }
 
+/* TODO: understand and rewrite this comment. */
 /* These functions work in fact with ms. */
 uint64_t ticks_get(void)
 {
@@ -406,7 +409,6 @@ struct player *player_init(void)
     p->armor = 50;
 
     return p;
-    
 }
 
 void player_free(struct player *p)
@@ -434,13 +436,14 @@ struct map *map_load(uint8_t *name)
         free(m);
         return NULL;
 #elif _CLIENT_
+        /* TODO: Implement downloading map from server */
         /* If map doesn't exist try to load it.
          * When map loaded, msgqueue_mngr_func() calls
          * map_load() and than loading is finished.
          */
         
         /* Recieved map dump into `path`. */
-        return NULL; // TODO: remove it.
+        return NULL;
 #endif
     }
 
@@ -488,6 +491,7 @@ struct map *map_load(uint8_t *name)
                 m->objs[h][w] = c;
             } else if(c == MAP_RESPAWN) {
 #ifdef _SERVER_
+                /* FIXME: WHY -1? */
                 if(m->respawns_count < MAP_RESPAWNS_MAX - 1) {
                     m->respawns[m->respawns_count].w = w;
                     m->respawns[m->respawns_count].h = h;
@@ -538,9 +542,9 @@ enum collision_enum_t collision_check_player(struct player *p,
                                              struct map *m,
                                              struct players_slots *s)
 #elif _CLIENT_
-/* On client we need check only MAP_WALL and MAP_PLAYER cases,
- * because on other cases we can put player point on bullet or bonus
- * and anything terrible doesn't happen.
+/* On client we need to check only for MAP_WALL and MAP_PLAYER cases, because
+ * in other cases we can put player on bullet or bonus and nothing terrible
+ * will happen.
  */
 enum collision_enum_t collision_check_player(struct player *p, struct map *m)
 #endif
