@@ -25,11 +25,13 @@
 #include <stdint.h>
 #include <time.h> /* time() */
 #include <string.h>
+#include <error.h>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
+#include <sys/poll.h>
+#include <netdb.h>
 #include <pthread.h>
 #ifdef __FreeBSD__
 #include <netinet/in.h>
@@ -49,7 +51,11 @@ pthread_t recv_mngr_thread, queue_mngr_thread;
 pthread_attr_t common_attr;
 struct ticks *queue_mngr_ticks;
 struct map *map;
-int sd;
+struct pollfd *fds = NULL;
+int nfds; /* number of file descriptors (sockets, really) in fds array */
+/* This array contains copies of ai_family of each fd
+ * We need it to figure out which socket to use to send data to client */
+int *fd_families = NULL;
 
 struct players_slots *players_init(void)
 {
@@ -100,7 +106,7 @@ struct player *players_occupy(struct players_slots *slots, struct player *p)
         oslot->prev = pslot;
         oslot->next = NULL;
         oslot->p = player_init();
-        memcpy(oslot->p->addr, p->addr, sizeof(struct sockaddr_in));
+        memcpy(oslot->p->addr, p->addr, sizeof(struct sockaddr_storage));
         strncpy((char *) oslot->p->nick, (char *) p->nick, NICK_MAX_LEN);
 
         if(slots->root == NULL) {
@@ -163,7 +169,7 @@ struct msg_queue *msgqueue_init(void)
     
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
         q->nodes[i].data = malloc(sizeof(struct msg));
-        q->nodes[i].addr = malloc(sizeof(struct sockaddr_in));
+        q->nodes[i].addr = malloc(sizeof(struct sockaddr_storage));
     }
     
     q->top = -1;
@@ -183,12 +189,14 @@ void msgqueue_free(struct msg_queue *q)
     free(q);
 }
 
-enum msg_queue_enum_t msgqueue_push(struct msg_queue *q, struct msg_queue_node *qnode)
+enum msg_queue_enum_t msgqueue_push(struct msg_queue *q,
+        struct msg_queue_node *qnode)
 {
     if(q->top < MSGQUEUE_INIT_SIZE - 1) {
         q->top++;
         
-        memcpy(q->nodes[q->top].addr, qnode->addr, sizeof(struct sockaddr_in));
+        memcpy(q->nodes[q->top].addr, qnode->addr,
+                sizeof(struct sockaddr_storage));
         memcpy(q->nodes[q->top].data, qnode->data, sizeof(struct msg));
         
         return MSGQUEUE_OK;
@@ -210,7 +218,8 @@ void bullet_explode(struct bullet *b)
 {
     int w, h;
     
-    for(w = b->x - weapons[b->type].explode_radius, h = b->y - weapons[b->type].explode_radius;
+    for(w = b->x - weapons[b->type].explode_radius,
+        h = b->y - weapons[b->type].explode_radius;
         w <= b->x + weapons[b->type].explode_radius;
         w++, h++) {
         struct players_slot *slot = players->root;
@@ -237,7 +246,8 @@ void bullet_explode(struct bullet *b)
 
                 srand((unsigned int) time(NULL));
 
-                damage = rand() % (weapons[b->type].damage_max - weapons[b->type].damage_min) + weapons[b->type].damage_min;
+                damage = rand() % (weapons[b->type].damage_max -
+                    weapons[b->type].damage_min) + weapons[b->type].damage_min;
                 event_player_hit(p, b->player, damage);
 
                 break;
@@ -362,7 +372,8 @@ void bullets_proceed(struct bullets *bullets)
                     goto outer;
                 }
 
-                if(w->bullets_distance > 0 && b->x < b->sx - w->bullets_distance) {
+                if(w->bullets_distance > 0 && b->x < b->sx
+                        - w->bullets_distance) {
                     bullet = bullet->next;
                     bullets_remove(bullets, b);
                     goto outer;
@@ -376,7 +387,8 @@ void bullets_proceed(struct bullets *bullets)
                     goto outer;
                 }
 
-                if(w->bullets_distance > 0 && b->x > b->sx + w->bullets_distance) {
+                if(w->bullets_distance > 0 && b->x > b->sx
+                            + w->bullets_distance) {
                     bullet = bullet->next;
                     bullets_remove(bullets, b);
                     goto outer;
@@ -390,7 +402,8 @@ void bullets_proceed(struct bullets *bullets)
                     goto outer;
                 }
 
-                if(w->bullets_distance > 0 && b->y < b->sy - w->bullets_distance) {
+                if(w->bullets_distance > 0 && b->y < b->sy
+                            - w->bullets_distance) {
                     bullet = bullet->next;
                     bullets_remove(bullets, b);
                     goto outer;
@@ -404,7 +417,8 @@ void bullets_proceed(struct bullets *bullets)
                     goto outer;
                 }
 
-                if(w->bullets_distance > 0 && b->y > b->sy + w->bullets_distance) {
+                if(w->bullets_distance > 0 && b->y > b->sy
+                            + w->bullets_distance) {
                     bullet = bullet->next;
                     bullets_remove(bullets, b);
                     goto outer;
@@ -540,42 +554,46 @@ enum bonuses_enum_t bonuses_remove(struct bonuses *bonuses, struct bonus *b)
     return BONUSES_ERROR;
 }
 
-/* This thread must do the only one thing - recieves
- * messages from many clients and then pushs them to msgqueue.
- */
+/* This thread recieves messages from clients and pushes them to msgqueue. */
 void *recv_mngr_func(void *arg)
 {
-    struct sockaddr_in client_addr;
+    struct sockaddr_storage client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
     struct msg_queue_node *qnode;
         
     qnode = malloc(sizeof(struct msg_queue_node));
     qnode->data = malloc(sizeof(struct msg));
-    qnode->addr = malloc(sizeof(struct sockaddr_in));
+    qnode->addr = malloc(sizeof(struct sockaddr_storage));
 
     queue_mngr_ticks = ticks_start();
     
     while("hope is not dead") {
-        uint8_t buf[sizeof(struct msg)];
-        
-        if(ticks_get_diff(queue_mngr_ticks) > 1000 / FPS) {
-            ticks_update(queue_mngr_ticks);
-            pthread_cond_signal(&queue_mngr_cond);
-        }
-        
-        if(recvfrom(sd, buf, sizeof(struct msg), 0,
-                    (struct sockaddr *) &client_addr, &client_addr_len) < 0) {
-            perror("server: recvfrom");
-            continue;
-        }
-        
-        msg_unpack(buf, qnode->data);
-        qnode->addr = &client_addr;
-        pthread_mutex_lock(&msgqueue_mutex);
-        if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
-            WARN("server: msgqueue_push: couldn't push data into queue.\n");
-        }
-        pthread_mutex_unlock(&msgqueue_mutex);
+        int n = poll(fds, nfds, -1);
+        if(n > 0)
+            for(n = 0; n < nfds; n++)
+                if(fds[n].revents & POLLIN) {
+                    uint8_t buf[sizeof(struct msg)];
+
+                    if(ticks_get_diff(queue_mngr_ticks) > 1000 / FPS) {
+                        ticks_update(queue_mngr_ticks);
+                        pthread_cond_signal(&queue_mngr_cond);
+                    }
+
+                    if(recvfrom(fds[n].fd, buf, sizeof(struct msg), 0,
+                                (struct sockaddr *) &client_addr,
+                                &client_addr_len) < 0) {
+                        perror("server: recvfrom");
+                        continue;
+                    }
+
+                    msg_unpack(buf, qnode->data);
+                    qnode->addr = &client_addr;
+                    pthread_mutex_lock(&msgqueue_mutex);
+                    if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
+                        WARN("server: msgqueue_push: couldn't push data into queue.\n");
+                    }
+                    pthread_mutex_unlock(&msgqueue_mutex);
+                }
     }
 
     return arg;
@@ -621,6 +639,8 @@ void *queue_mngr_func(void *arg)
 
 void quit(int signum)
 {
+    int i;
+
     if(signum > 0) {
         pthread_cancel(recv_mngr_thread);
         pthread_cancel(queue_mngr_thread);
@@ -632,7 +652,10 @@ void quit(int signum)
     event_disconnect_server();
     send_events();
     
-    close(sd);
+    for(i = 0; i < nfds; i++)
+        close(fds[i].fd);
+    free(fds);
+    free(fd_families);
     map_unload(map);
     msgqueue_free(msgqueue);
     players_free(players);
@@ -643,6 +666,21 @@ void quit(int signum)
     pthread_exit(NULL);
 }
 
+/* sendto() substitute
+ * Figures out which socket to use to send data to specified player
+ * Arguments list is shorter because we don't use flags argument */
+void send_to(const void *buf, size_t len, const struct sockaddr *dest,
+        socklen_t addrlen) {
+    int i;
+    sa_family_t dest_sock_family = dest->sa_family;
+    for(i = 0; i < nfds; i++) {
+        if(fd_families[i] == dest_sock_family) {
+            /* No flags, thus 0 */
+            sendto(fds[i].fd, buf, len, 0, dest, addrlen);
+        }
+    }
+}
+
 /* TODO: write function sync_mngr_func()
  * which will be check seq number of
  * each client and if necessary send
@@ -650,7 +688,10 @@ void quit(int signum)
  */
 int main(int argc, char **argv)
 {
-    struct sockaddr_in server_addr;
+    struct addrinfo *addr_res = NULL;
+    struct addrinfo hints;
+    struct addrinfo *addr;
+    int err, sockopt = 1;
     
     signal(SIGINT, quit);
     signal(SIGHUP, quit);
@@ -668,22 +709,43 @@ int main(int argc, char **argv)
     bonuses = bonuses_init();
     bullets = bullets_init();
 
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(6006);
-    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    memset(&hints, 0, sizeof(hints));
+    //hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
+    hints.ai_flags = AI_ADDRCONFIG;
+    hints.ai_socktype = SOCK_DGRAM;
+    err = getaddrinfo(NULL, "6006", &hints, &addr_res);
+    if(err != 0)
+        error(EXIT_FAILURE, 0, "getaddrinfo: %s", gai_strerror(err));
 
-    sd = socket(server_addr.sin_family, SOCK_DGRAM, 0);
-    if(sd < 0) {
-        perror("server: socket");
-        exit(EXIT_FAILURE);
+    for(addr = addr_res; addr != NULL; addr = addr->ai_next) {
+        nfds++;
     }
-    
-    if(bind(sd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
-        perror("server: bind");
-        exit(EXIT_FAILURE);
+    fds = (struct pollfd *)malloc(sizeof(struct pollfd) * nfds);
+    fd_families = (int*)malloc(sizeof(int) * nfds);
+
+    for(nfds = 0, addr = addr_res; addr != NULL; addr = addr->ai_next) {
+        fds[nfds].fd = socket(addr->ai_family, addr->ai_socktype,
+                addr->ai_protocol);
+        if(fds[nfds].fd == -1) {
+            perror("socket");
+            exit(EXIT_FAILURE);
+        }
+
+        fds[nfds].events = POLLIN;
+        setsockopt(fds[nfds].fd, SOL_SOCKET, SO_REUSEADDR, &sockopt,
+                sizeof(sockopt));
+
+        if(bind(fds[nfds].fd, addr->ai_addr, addr->ai_addrlen) != 0) {
+            perror("bind");
+            close(fds[nfds].fd);
+            exit(EXIT_FAILURE);
+        } else {
+            fd_families[nfds] = addr->ai_family;
+            nfds++;
+        }
     }
-    
+    freeaddrinfo(addr);
+
     pthread_mutex_init(&msgqueue_mutex, NULL);
     pthread_cond_init(&queue_mngr_cond, NULL);
     
