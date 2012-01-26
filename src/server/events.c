@@ -241,8 +241,9 @@ void send_events(void)
         }
         
         if(MSGBATCH_SIZE(&(p->msgbatch)) > 0) {
-            sendto(sd, p->msgbatch.chunks, p->msgbatch.size + 1,
-                   0, (struct sockaddr *) p->addr, sizeof(struct sockaddr_in));
+            send_to(p->msgbatch.chunks, p->msgbatch.size + 1,
+                   (struct sockaddr *) p->addr,
+                   sizeof(struct sockaddr_storage));
         }
         
         slot = slot->next;
@@ -298,8 +299,9 @@ void event_connect_ask(struct msg_queue_node *qnode)
         memset(&msgbatch, 0, sizeof(struct msg_batch));
         msg_batch_push(&msgbatch, &msg);
         
-        sendto(sd, msgbatch.chunks, msgbatch.size + 1,
-               0, (struct sockaddr *) qnode->addr, sizeof(struct sockaddr_in));
+        send_to(msgbatch.chunks, msgbatch.size + 1,
+               (struct sockaddr *) qnode->addr,
+               sizeof(struct sockaddr_storage));
     } else {
         struct map_respawn *respawn;
         struct bonus bonus = {

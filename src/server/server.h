@@ -27,7 +27,7 @@
 
 struct msg_queue_node {
     struct msg *data;
-    struct sockaddr_in *addr;
+    struct sockaddr_storage *addr;
 };
 
 struct msg_queue {
@@ -103,12 +103,16 @@ void bonuses_free(struct bonuses*);
 struct bonus *bonuses_search(struct bonuses*, uint16_t, uint16_t);
 struct bonus *bonuses_add(struct bonuses*, struct bonus*);
 enum bonuses_enum_t bonuses_remove(struct bonuses*, struct bonus*);
+void send_to(const void *buf, size_t len, const struct sockaddr *dest,
+        socklen_t addrlen);
     
 extern struct msg_queue *msgqueue;
 extern struct players_slots *players;
 extern struct bonuses *bonuses;
 extern struct bullets *bullets;
 extern struct map *map;
-extern int sd;
+extern struct pollfd *fds;
+extern int nfds;
+extern int *fd_families;
 
 #endif
