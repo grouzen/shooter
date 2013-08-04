@@ -14,8 +14,8 @@ client_sdl_objs = $(client_srcdir)/ui/sdl/backend.o
 
 server_headers = $(srcdir)/cdata.h $(server_srcdir)/events.h $(server_srcdir)/server.h
 client_generic_headers = $(srcdir)/cdata.h $(client_srcdir)/ui/backend.h $(client_srcdir)/client.h
-client_ncurses_headers = 
-client_sdl_headers = 
+client_ncurses_headers =
+client_sdl_headers =
 
 LDFLAGS += -pthread
 CFLAGS += -Wall -Wextra -g -D_DEBUG_

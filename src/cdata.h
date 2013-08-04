@@ -23,6 +23,7 @@
 #ifndef __CDATA_H__
 #define __CDATA_H__
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef _DEBUG_
@@ -57,7 +58,7 @@
      (x) <= (px) + PLAYER_VIEWPORT_WIDTH / 2 &&     \
      (y) >= (py) - PLAYER_VIEWPORT_HEIGHT / 2 &&    \
      (y) <= (py) + PLAYER_VIEWPORT_HEIGHT / 2)
-        
+
 
 /* Each object on the map is represented by ascii symbol. */
 #define MAP_EMPTY ' '
@@ -380,7 +381,7 @@ enum msg_queue_enum_t {
 };
 
 void msg_pack(struct msg*, uint8_t*);
-void msg_unpack(uint8_t*, struct msg*);
+bool msg_unpack(uint8_t*, struct msg*);
 enum msg_batch_enum_t msg_batch_push(struct msg_batch*, struct msg*);
 uint8_t *msg_batch_pop(struct msg_batch*);
 uint64_t ticks_get(void);
