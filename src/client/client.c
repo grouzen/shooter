@@ -556,8 +556,13 @@ int main(int argc, char **argv)
     signal(SIGQUIT, quit);
 
     msgqueue = msgqueue_init();
-    player = player_init();
-
+    player = player_init(NULL);
+    if (!player)
+    {
+        perror ("malloc");
+        quit (1);
+        return 1;
+    }
     pthread_mutex_init(&msgqueue_mutex, NULL);
     pthread_mutex_init(&map_mutex, NULL);
     pthread_mutex_init(&player_mutex, NULL);

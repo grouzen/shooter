@@ -338,20 +338,13 @@ enum player_enum_t {
     PLAYERS_OK
 };
 
-struct players_slot {
-    struct players_slot *next;
-    struct players_slot *prev;
-    struct player *p;
-};
-
 struct players_slots {
-    struct players_slot *root;
     uint8_t count;
     /* Describes which slots are free and which are occupied.
        It is an array of pointers to slots.
        If pointer is NULL then slot is free.
     */
-    struct players_slot *slots[MAX_PLAYERS];
+    struct player player[MAX_PLAYERS];
 };
 #endif
 
@@ -389,7 +382,7 @@ struct ticks *ticks_start(void);
 void ticks_update(struct ticks*);
 void ticks_finish(struct ticks*);
 uint64_t ticks_get_diff(struct ticks*);
-struct player *player_init(void);
+struct player *player_init(struct player*);
 void player_free(struct player*);
 struct map *map_load(uint8_t*);
 void map_unload(struct map*);
@@ -402,3 +395,4 @@ enum collision_enum_t collision_check_player(struct player*, struct map*);
 #endif
 
 #endif
+/* vim:set expandtab: */

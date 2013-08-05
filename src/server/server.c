@@ -61,100 +61,56 @@ struct players_slots *players_init(void)
 {
     struct players_slots *slots;
 
-    slots = malloc(sizeof(struct players_slots));
-    slots->root = NULL;
+    slots = calloc(1, sizeof(struct players_slots));
     slots->count = 0;
-    memset(slots->slots, 0, MAX_PLAYERS * sizeof(struct players_slot *));
 
     return slots;
 }
 
 void players_free(struct players_slots *slots)
 {
-    struct players_slot *cslot, *nslot;
-
-    nslot = slots->root;
-
-    while(nslot != NULL) {
-        cslot = nslot;
-        nslot = nslot->next;
-
-        player_free(cslot->p);
-        free(cslot);
+    register size_t i = 0u;
+    if (slots->count)
+    {
+        for (; i < MAX_PLAYERS; i++)
+        {
+            player_free (&slots->player[i]);
+        }
     }
-
-    free(slots);
 }
 
-struct player *players_occupy(struct players_slots *slots, struct player *p)
+struct player *players_occupy(struct players_slots *slots,\
+        struct sockaddr_storage *addr, uint8_t *nick)
 {
-    if(slots->count < MAX_PLAYERS - 1) {
-        struct players_slot *oslot = slots->root;
-        struct players_slot *new = malloc(sizeof(struct players_slot));
-        struct players_slot *pslot = NULL;
-        int i;
-
-        memset(new, 0, sizeof(struct players_slot));
-        slots->count++;
-
-        while(oslot != NULL) {
-            pslot = oslot;
-            oslot = oslot->next;
-        }
-
-        oslot = new;
-        oslot->prev = pslot;
-        oslot->next = NULL;
-        oslot->p = player_init();
-        memcpy(oslot->p->addr, p->addr, sizeof(struct sockaddr_storage));
-        strncpy((char *) oslot->p->nick, (char *) p->nick, NICK_MAX_LEN);
-
-        if(slots->root == NULL) {
-            slots->root = oslot;
-        } else {
-            pslot->next = oslot;
-        }
-
-        for(i = 0; i < MAX_PLAYERS; i++) {
-            if(slots->slots[i] == NULL) {
-                slots->slots[i] = oslot;
-                oslot->p->id = (uint8_t) i;
-
-                return oslot->p;
-            }
+    register size_t i = 0u;
+    if (slots->count >= MAX_PLAYERS)
+        return NULL;
+    for (; i < MAX_PLAYERS; i++)
+    {
+        if (slots->player[i].nick)
+            continue;
+        if (player_init (&slots->player[i]))
+        {
+            memcpy (slots->player[i].addr, addr, sizeof (struct sockaddr_storage));
+            strncpy ((char *)slots->player[i].nick, (const char *)nick, NICK_MAX_LEN);
+            slots->player[i].id = i;
+            slots->count++;
+            return &slots->player[i];
         }
     }
-
     return NULL;
 }
 
 enum player_enum_t players_release(struct players_slots *slots, uint8_t id)
 {
-    if(slots->count > 0 && slots->slots[id] != NULL) {
-        struct players_slot *cslot, *pslot, *nslot;
-        slots->count--;
-
-        cslot = slots->slots[id];
-        nslot = cslot->next;
-        pslot = cslot->prev;
-
-        if(cslot == slots->root) {
-            slots->root = nslot;
-        } else {
-            pslot->next = nslot;
+    if(slots->count > 0 && id < MAX_PLAYERS) {
+        if (slots->player[id].nick)
+        {
+            slots->count--;
+            /* Make slot free. */
+            player_free(&slots->player[id]);
+            return PLAYERS_OK;
         }
-
-        if(nslot != NULL) {
-            nslot->prev = pslot;
-        }
-
-        /* Make slot free. */
-        player_free(cslot->p);
-        free(cslot);
-
-        slots->slots[id] = NULL;
-
-        return PLAYERS_OK;
     }
 
     return PLAYERS_ERROR;
@@ -214,18 +170,21 @@ struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
     return NULL;
 }
 
+/* hit in bullet radius */
 void bullet_explode(struct bullet *b)
 {
-    int w, h;
-
+    uint16_t damage;
+    register int w, h;
+    register size_t i;
     for(w = b->x - weapons[b->type].explode_radius,
         h = b->y - weapons[b->type].explode_radius;
         w <= b->x + weapons[b->type].explode_radius;
         w++, h++) {
-        struct players_slot *slot = players->root;
+        i = 0u;
 
+        /* lave map */
         if(w <= 0 || h <= 0 || w > map->width + 1 || h > map->height + 1) {
-            continue;
+            break;
         }
 
         if(map->objs[h - 1][w - 1] == MAP_WALL) {
@@ -237,23 +196,23 @@ void bullet_explode(struct bullet *b)
 
             continue;
         }
-
-        while(slot != NULL) {
-            struct player *p = slot->p;
-
-            if(p->pos_x == w && p->pos_y == h) {
-                uint16_t damage;
-
-                srand((unsigned int) time(NULL));
-
-                damage = rand() % (weapons[b->type].damage_max -
-                    weapons[b->type].damage_min) + weapons[b->type].damage_min;
-                event_player_hit(p, b->player, damage);
-
+        /* process players */
+        for (i = 0u; i < MAX_PLAYERS; i++)
+        {
+            /* skip unallocated slots */
+            if (!players->player[i].nick)
+                continue;
+            /* check damage */
+            if (players->player[i].pos_x == w && players->player[i].pos_y == h)
+            {
+                /* TODO: need another method to calc damage */
+                damage = rand () % (weapons[b->type].damage_max -\
+                        weapons[b->type].damage_min) +\
+                         weapons[b->type].damage_min;
+                event_player_hit (&players->player[i], b->player, damage);
+                /* only one user may be in position, leave loop */
                 break;
             }
-
-            slot = slot->next;
         }
     }
 }
@@ -356,6 +315,7 @@ enum bullets_enum_t bullets_remove(struct bullets *bullets, struct bullet *b)
 void bullets_proceed(struct bullets *bullets)
 {
     struct bullets_node *bullet = bullets->root;
+    register size_t i;
 
     while(bullet != NULL) {
         struct bullet *b = bullet->b;
@@ -364,7 +324,6 @@ void bullets_proceed(struct bullets *bullets)
         int by = b->y;
 
         for(;;) {
-            struct players_slot *slot = players->root;
 
             switch(b->direction) {
             case DIRECTION_LEFT:
@@ -435,22 +394,24 @@ void bullets_proceed(struct bullets *bullets)
                b->y >= map->height - 1 || b->x >= map->width - 1 ||
                map->objs[b->y - 1][b->x - 1] == MAP_WALL) {
                 bullet = bullet->next;
-                bullet_explode(b);
-                bullets_remove(bullets, b);
+                bullet_explode (b);
+                bullets_remove (bullets, b);
                 goto outer;
             }
-
-            while(slot != NULL) {
-                struct player *p = slot->p;
-
-                if(p->pos_x == b->x && p->pos_y == b->y) {
+            for (i = 0u; i < MAX_PLAYERS; i++)
+            {
+                /* skip free slot */
+                if (!players->player[i].nick)
+                    continue;
+                if (players->player[i].pos_x == b->x &&\
+                        players->player[i].pos_y == b->y)
+                {
                     bullet = bullet->next;
-                    bullet_explode(b);
-                    bullets_remove(bullets, b);
+                    bullet_explode (b);
+                    bullets_remove (bullets, b);
+                    /* no more players in this slot */
                     goto outer;
                 }
-
-                slot = slot->next;
             }
         }
         // TODO: remove this hack

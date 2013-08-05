@@ -70,7 +70,7 @@ struct bonus {
     uint8_t type;
     uint8_t index;
     uint16_t x;
-    uint16_t y;    
+    uint16_t y;
 };
 
 struct bonuses_node {
@@ -86,7 +86,7 @@ struct bonuses {
 
 struct players_slots *players_init(void);
 void players_free(struct players_slots*);
-struct player *players_occupy(struct players_slots*, struct player*);
+struct player *players_occupy(struct players_slots*, struct sockaddr_storage*, uint8_t*);
 enum player_enum_t players_release(struct players_slots*, uint8_t);
 struct msg_queue *msgqueue_init(void);
 void msgqueue_free(struct msg_queue*);
@@ -105,7 +105,7 @@ struct bonus *bonuses_add(struct bonuses*, struct bonus*);
 enum bonuses_enum_t bonuses_remove(struct bonuses*, struct bonus*);
 void send_to(const void *buf, size_t len, const struct sockaddr *dest,
         socklen_t addrlen);
-    
+
 extern struct msg_queue *msgqueue;
 extern struct players_slots *players;
 extern struct bonuses *bonuses;

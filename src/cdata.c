@@ -400,19 +400,20 @@ uint64_t ticks_get_diff(struct ticks *tc)
     return ticks_get() - (tc->offset + tc->count);
 }
 
-struct player *player_init(void)
+struct player *player_init(struct player *p)
 {
-    struct player *p;
-
-    p = malloc(sizeof(struct player));
-    memset(p, 0, sizeof(struct player));
-    p->nick = malloc(sizeof(uint8_t) * NICK_MAX_LEN);
+    if (!p)
+        p = malloc(sizeof(struct player));
+    if (p)
+    {
+        memset(p, 0, sizeof(struct player));
+        p->nick = malloc(sizeof(uint8_t) * NICK_MAX_LEN);
 #ifdef _SERVER_
-    p->addr = malloc(sizeof(struct sockaddr_storage));
+        p->addr = malloc(sizeof(struct sockaddr_storage));
 #endif
-    p->hp = 100;
-    p->armor = 50;
-
+        p->hp = 100;
+        p->armor = 50;
+    }
     return p;
 }
 
@@ -421,8 +422,11 @@ void player_free(struct player *p)
     free(p->nick);
 #ifdef _SERVER_
     free(p->addr);
-#endif
+    /* logical free */
+    p->nick = NULL;
+#else
     free(p);
+#endif
 }
 
 /* TODO: load map from file. */
@@ -555,21 +559,23 @@ enum collision_enum_t collision_check_player(struct player *p, struct map *m)
 #endif
 {
 #ifdef _SERVER_
-    struct players_slot *slot = s->root;
+    register size_t i;
 #endif
     if(p->pos_x <= 0 || p->pos_y <= 0 || p->pos_x >= m->width + 1 ||
        p->pos_y >= m->height + 1 || m->objs[p->pos_y - 1][p->pos_x - 1] == MAP_WALL) {
         return COLLISION_WALL;
     }
 #ifdef _SERVER_
-    while(slot != NULL) {
-        struct player *sp = slot->p;
-
-        if(sp != p && sp->pos_x == p->pos_x && sp->pos_y == p->pos_y) {
+    for (i = 0u; i < MAX_PLAYERS; i++)
+    {
+        /* if ISNULL (player[i].nick) -> slot not allocated */
+        if (s->player[i].nick &&\
+                s->player[i].id != p->id &&\
+                s->player[i].pos_x == p->pos_x &&\
+                s->player[i].pos_y == p->pos_y)
+        {
             return COLLISION_PLAYER;
         }
-
-        slot = slot->next;
     }
 #elif _CLIENT_
     if(m->objs[p->pos_y - 1][p->pos_x - 1] == MAP_PLAYER) {
@@ -579,3 +585,4 @@ enum collision_enum_t collision_check_player(struct player *p, struct map *m)
 
     return COLLISION_NONE;
 }
+/* vim:set expandtab: */

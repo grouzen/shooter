@@ -34,12 +34,27 @@
 #include "../cdata.h"
 #include "server.h"
 
+void event_seqnotify_all (struct msg *msg, struct player *exclude)
+{
+    register size_t i = 0u;
+    for (; i < MAX_PLAYERS; i++)
+    {
+        /* skip user, if nick not defined: user not allocated */
+        if (players->player[i].nick ||\
+                (exclude && exclude->id != players->player[i].id))
+        {
+            players->player[i].seq++;
+            msg_batch_push (&players->player[i].msgbatch, msg);
+        }
+    }
+}
+
 void event_enemy_position(struct player *p, uint16_t x, uint16_t y)
 {
     struct msg msg;
-    
+
     p->seq++;
-    
+
     msg.type = MSGTYPE_ENEMY_POSITION;
     msg.event.enemy_position.pos_x = x;
     msg.event.enemy_position.pos_y = y;
@@ -51,7 +66,7 @@ void event_player_position(struct player *p)
     struct msg msg;
 
     p->seq++;
-    
+
     msg.type = MSGTYPE_PLAYER_POSITION;
     msg.event.player_position.pos_x = p->pos_x;
     msg.event.player_position.pos_y = p->pos_y;
@@ -68,9 +83,9 @@ void event_player_hit(struct player *ptarget, struct player *pkiller, uint16_t d
 {
     struct msg msg;
 
-    
+
     INFO("Player %s hits %s, damage: %u\n", pkiller->nick, ptarget->nick, damage);
-    
+
     ptarget->seq++;
 
     if(ptarget->armor > damage / 2) {
@@ -99,29 +114,28 @@ void event_player_hit(struct player *ptarget, struct player *pkiller, uint16_t d
 void event_map_explode(uint16_t w, uint16_t h)
 {
     struct msg msg;
-    struct players_slot *slot = players->root;
+    register size_t i;
 
     msg.type = MSGTYPE_MAP_EXPLODE;
     msg.event.map_explode.w = w;
     msg.event.map_explode.h = h;
 
     INFO("Map has been destroyed at %ux%u.\n", w, h);
-    
-    while(slot != NULL) {
-        struct player *p = slot->p;
-
-        p->seq++;
-
-        msg_batch_push(&(p->msgbatch), &msg);
-        
-        slot = slot->next;
+    for (i = 0u; i < MAX_PLAYERS; i++)
+    {
+        /* skip unallocated slot */
+        if (players->player[i].nick)
+        {
+            players->player[i].seq++;
+            msg_batch_push (&(players->player[i].msgbatch), &msg);
+        }
     }
 }
 
 void event_on_bonus(struct player *p, struct bonus *bonus)
 {
     struct msg msg;
-    
+
     p->seq++;
 
     switch(bonus->type) {
@@ -133,7 +147,7 @@ void event_on_bonus(struct player *p, struct bonus *bonus)
     default:
         break;
     }
-    
+
     msg.type = MSGTYPE_ON_BONUS;
     msg.event.on_bonus.type = bonus->type;
     msg.event.on_bonus.index = bonus->index;
@@ -142,67 +156,40 @@ void event_on_bonus(struct player *p, struct bonus *bonus)
 
 void event_disconnect_server(void)
 {
-    struct players_slot *slot = players->root;
     struct msg msg;
 
     msg.type = MSGTYPE_DISCONNECT_SERVER;
     msg.event.disconnect_server.stub = 1;
-    
-    while(slot != NULL) {
-        struct player *p = slot->p;
 
-        p->seq++;
-        msg_batch_push(&(p->msgbatch), &msg);
-        
-        slot = slot->next;
-    }
-}
+    event_seqnotify_all (&msg, NULL);
+ }
 
 void event_disconnect_notify(uint8_t *nick)
 {
     struct msg msg;
-    struct players_slot *slot = players->root;
-    
+
     msg.type = MSGTYPE_DISCONNECT_NOTIFY;
     strncpy((char *) msg.event.disconnect_notify.nick,
-            (char *) nick, NICK_MAX_LEN);    
-    
-    slot = players->root;
-    while(slot != NULL) {
-        struct player *p = slot->p;
-        
-        p->seq++;
-        msg_batch_push(&(p->msgbatch), &msg);
-        
-        slot = slot->next;
-    }
+            (char *) nick, NICK_MAX_LEN);
+
+    event_seqnotify_all (&msg, NULL);
 }
 
 void event_connect_notify(struct player *p)
 {
     struct msg msg;
-    struct players_slot *slot = players->root;
-    
+
     msg.type = MSGTYPE_CONNECT_NOTIFY;
     strncpy((char *) msg.event.connect_notify.nick,
             (char *) p->nick, NICK_MAX_LEN);
-    
-    while(slot != NULL) {
-        struct player *lp = slot->p;
-            
-        if(lp != p) {
-            lp->seq++;
-            msg_batch_push(&(lp->msgbatch), &msg);
-        }
-            
-        slot = slot->next;
-    }
+
+    event_seqnotify_all (&msg, p);
 }
 
 void event_connect_ok(struct player *p, uint8_t ok)
 {
     struct msg msg;
-    
+
     p->seq++;
 
 
@@ -220,42 +207,40 @@ void event_connect_ok(struct player *p, uint8_t ok)
 
 void send_events(void)
 {
-    struct players_slot *slot = players->root;
-
+    register size_t li;
+    register size_t ri;
+    register struct player *rplayer;
+    register struct player *lplayer;
     bullets_proceed(bullets);
-    
+
     /* Send diff to each player. */
-    slot = players->root;
-    while(slot != NULL) {
-        struct player *p = slot->p;
-        struct players_slot *lslot = players->root;
-
-        while(lslot != NULL) {
-            struct player *lp = lslot->p;
-
-            if(IN_PLAYER_VIEWPORT(lp->pos_x, lp->pos_y, p->pos_x, p->pos_y)) {
-                event_enemy_position(p, lp->pos_x, lp->pos_y);
+    for (li = 0u; li < MAX_PLAYERS; li++)
+    {
+        /* skip unused slot */
+        if (!players->player[li].nick)
+            continue;
+        lplayer = &players->player[li];
+        for (ri = 0u; ri < MAX_PLAYERS; ri++)
+        {
+            if (!players->player[ri].nick)
+                continue;
+            rplayer = &players->player[ri];
+            if (IN_PLAYER_VIEWPORT (rplayer->pos_x, rplayer->pos_y,\
+                        lplayer->pos_x, lplayer->pos_y))
+            {
+                event_enemy_position (lplayer, rplayer->pos_x, rplayer->pos_y);
             }
-
-            lslot = lslot->next;
         }
-        
-        if(MSGBATCH_SIZE(&(p->msgbatch)) > 0) {
-            send_to(p->msgbatch.chunks, p->msgbatch.size + 1,
-                   (struct sockaddr *) p->addr,
-                   sizeof(struct sockaddr_storage));
+        /* flush batch */
+        if (MSGBATCH_SIZE (&lplayer->msgbatch) > 0)
+        {
+            send_to (lplayer->msgbatch.chunks, lplayer->msgbatch.size + 1,\
+                    (struct sockaddr *)lplayer->addr,
+                    sizeof (struct sockaddr_storage));
         }
-        
-        slot = slot->next;
+        /* Refresh msgbatch for each player. */
+        memset (&lplayer->msgbatch, 0, sizeof (struct msg_batch));
     }
-
-    slot = players->root;
-    /* Refresh msgbatch for each player. */
-    while(slot != NULL) {
-        memset(&(slot->p->msgbatch), 0, sizeof(struct msg_batch));
-        slot = slot->next;
-    }
-        
 }
 
 void event_disconnect_client(struct msg_queue_node *qnode)
@@ -263,8 +248,10 @@ void event_disconnect_client(struct msg_queue_node *qnode)
     uint8_t nick[NICK_MAX_LEN];
 
     /* Copy nick of the disconnected player. */
-    if(players->slots[qnode->data->header.id] != NULL) {
-        strncpy((char *) nick, (char *) players->slots[qnode->data->header.id]->p->nick, NICK_MAX_LEN);
+    if(players->player[qnode->data->header.id].nick) {
+        strncpy((char *) nick,\
+                (const char *)players->player[qnode->data->header.id].nick,\
+                NICK_MAX_LEN);
     }
 
     if(players_release(players, qnode->data->header.id) == PLAYERS_ERROR) {
@@ -274,23 +261,18 @@ void event_disconnect_client(struct msg_queue_node *qnode)
 
     INFO("Player %s disconnect.\n", nick);
 
-    event_disconnect_notify(nick);    
+    event_disconnect_notify(nick);
 }
 
 void event_connect_ask(struct msg_queue_node *qnode)
 {
-    struct player player;
     struct player *newplayer;
-    
-    player.addr = qnode->addr;
-    player.nick = qnode->data->event.connect_ask.nick;
+    newplayer = players_occupy(players, qnode->addr, qnode->data->event.connect_ask.nick);
 
-    newplayer = players_occupy(players, &player);
-    
     if(newplayer == NULL) {
         struct msg msg;
         struct msg_batch msgbatch;
-        
+
         WARN("There are no free slots. Server maintains maximum %u players\n", MAX_PLAYERS);
 
         msg.type = MSGTYPE_CONNECT_OK;
@@ -298,7 +280,7 @@ void event_connect_ask(struct msg_queue_node *qnode)
 
         memset(&msgbatch, 0, sizeof(struct msg_batch));
         msg_batch_push(&msgbatch, &msg);
-        
+
         send_to(msgbatch.chunks, msgbatch.size + 1,
                (struct sockaddr *) qnode->addr,
                sizeof(struct sockaddr_storage));
@@ -310,24 +292,24 @@ void event_connect_ask(struct msg_queue_node *qnode)
             .x = 0,
             .y = 0
         };
-        
+
         INFO("New player connected with nick %s. Total players: %u.\n",
              newplayer->nick, players->count);
-        
+
         /* Connect new player. */
         event_connect_ok(newplayer, 1);
-        
+
         /* Get random respawn point. */
         srand((unsigned int) time(NULL));
         respawn = &(map->respawns[0 + rand() % map->respawns_count]);
         newplayer->pos_x = respawn->w + 1;
         newplayer->pos_y = respawn->h + 1;
-        
+
         event_player_position(newplayer);
-        
+
         /* Give to the player the weapon. */
         event_on_bonus(newplayer, &bonus);
-        
+
         /* Notify rest players about new player. */
         event_connect_notify(newplayer);
     }
@@ -336,7 +318,7 @@ void event_connect_ask(struct msg_queue_node *qnode)
 
 void event_shoot(struct msg_queue_node *qnode)
 {
-    struct player *p = players->slots[qnode->data->header.id]->p;
+    struct player *p = &players->player[qnode->data->header.id];
     struct bullet b = {
         .player = p,
         .type = p->weapons.current,
@@ -356,14 +338,14 @@ void event_shoot(struct msg_queue_node *qnode)
 
 void event_walk(struct msg_queue_node *qnode)
 {
-    struct player *p = players->slots[qnode->data->header.id]->p;
+    struct player *p = &players->player[qnode->data->header.id];
     uint16_t px, py;
 
     px = p->pos_x;
     py = p->pos_y;
-    
+
     p->direction = qnode->data->event.walk.direction;
-    
+
     switch(p->direction) {
     case DIRECTION_LEFT:
         p->pos_x--;
@@ -385,6 +367,7 @@ void event_walk(struct msg_queue_node *qnode)
         p->pos_x = px;
         p->pos_y = py;
     }
-    
+
     event_player_position(p);
 }
+/* vim:set expandtab: */
