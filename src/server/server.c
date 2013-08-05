@@ -573,6 +573,7 @@ void *queue_mngr_func(void *arg)
 {
     struct msg_queue_node *qnode;
 
+    /* FIXME: nahui */
     sleep(1);
 
     while("teh internetz exists") {
