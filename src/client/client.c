@@ -125,10 +125,10 @@ void event_disconnect_client(void)
 void event_connect_ask(void)
 {
     struct msg msg;
-
+    char *nick = getenv ("USER");
     msg.type = MSGTYPE_CONNECT_ASK;
     /* TODO: get nick from config or args. */
-    strncpy((char *) msg.event.connect_ask.nick, "somenick", NICK_MAX_LEN);
+    strncpy((char *) msg.event.connect_ask.nick, nick ? nick : "somenick", NICK_MAX_LEN);
 
     send_event(&msg);
 }
@@ -581,3 +581,4 @@ int main(int argc, char **argv)
 
     return 0;
 }
+/* vim:set expandtab: */
