@@ -74,7 +74,8 @@ void players_free(struct players_slots *slots)
     {
         for (; i < MAX_PLAYERS; i++)
         {
-            player_free (&slots->player[i]);
+            if (slots->player[i].nick)
+                player_free (&slots->player[i]);
         }
     }
 }
