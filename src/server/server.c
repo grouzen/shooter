@@ -60,7 +60,7 @@ int *fd_families = NULL;
 struct players_slots *players_init(void)
 {
     struct players_slots *slots;
-    
+
     slots = malloc(sizeof(struct players_slots));
     slots->root = NULL;
     slots->count = 0;
@@ -82,11 +82,11 @@ void players_free(struct players_slots *slots)
         player_free(cslot->p);
         free(cslot);
     }
-    
+
     free(slots);
 }
 
-struct player *players_occupy(struct players_slots *slots, struct player *p) 
+struct player *players_occupy(struct players_slots *slots, struct player *p)
 {
     if(slots->count < MAX_PLAYERS - 1) {
         struct players_slot *oslot = slots->root;
@@ -101,7 +101,7 @@ struct player *players_occupy(struct players_slots *slots, struct player *p)
             pslot = oslot;
             oslot = oslot->next;
         }
-        
+
         oslot = new;
         oslot->prev = pslot;
         oslot->next = NULL;
@@ -114,12 +114,12 @@ struct player *players_occupy(struct players_slots *slots, struct player *p)
         } else {
             pslot->next = oslot;
         }
-        
+
         for(i = 0; i < MAX_PLAYERS; i++) {
             if(slots->slots[i] == NULL) {
                 slots->slots[i] = oslot;
                 oslot->p->id = (uint8_t) i;
-                
+
                 return oslot->p;
             }
         }
@@ -133,11 +133,11 @@ enum player_enum_t players_release(struct players_slots *slots, uint8_t id)
     if(slots->count > 0 && slots->slots[id] != NULL) {
         struct players_slot *cslot, *pslot, *nslot;
         slots->count--;
-        
+
         cslot = slots->slots[id];
         nslot = cslot->next;
         pslot = cslot->prev;
-        
+
         if(cslot == slots->root) {
             slots->root = nslot;
         } else {
@@ -151,7 +151,7 @@ enum player_enum_t players_release(struct players_slots *slots, uint8_t id)
         /* Make slot free. */
         player_free(cslot->p);
         free(cslot);
-        
+
         slots->slots[id] = NULL;
 
         return PLAYERS_OK;
@@ -166,12 +166,12 @@ struct msg_queue *msgqueue_init(void)
     int i;
 
     q = malloc(sizeof(struct msg_queue));
-    
+
     for(i = 0; i < MSGQUEUE_INIT_SIZE; i++) {
         q->nodes[i].data = malloc(sizeof(struct msg));
         q->nodes[i].addr = malloc(sizeof(struct sockaddr_storage));
     }
-    
+
     q->top = -1;
 
     return q;
@@ -185,7 +185,7 @@ void msgqueue_free(struct msg_queue *q)
         free(q->nodes[i].data);
         free(q->nodes[i].addr);
     }
-    
+
     free(q);
 }
 
@@ -194,11 +194,11 @@ enum msg_queue_enum_t msgqueue_push(struct msg_queue *q,
 {
     if(q->top < MSGQUEUE_INIT_SIZE - 1) {
         q->top++;
-        
+
         memcpy(q->nodes[q->top].addr, qnode->addr,
                 sizeof(struct sockaddr_storage));
         memcpy(q->nodes[q->top].data, qnode->data, sizeof(struct msg));
-        
+
         return MSGQUEUE_OK;
     }
 
@@ -217,13 +217,13 @@ struct msg_queue_node *msgqueue_pop(struct msg_queue *q)
 void bullet_explode(struct bullet *b)
 {
     int w, h;
-    
+
     for(w = b->x - weapons[b->type].explode_radius,
         h = b->y - weapons[b->type].explode_radius;
         w <= b->x + weapons[b->type].explode_radius;
         w++, h++) {
         struct players_slot *slot = players->root;
-        
+
         if(w <= 0 || h <= 0 || w > map->width + 1 || h > map->height + 1) {
             continue;
         }
@@ -231,13 +231,13 @@ void bullet_explode(struct bullet *b)
         if(map->objs[h - 1][w - 1] == MAP_WALL) {
             if(weapons[b->type].explode_map) {
                 map->objs[h - 1][w - 1] = MAP_EMPTY;
-                
+
                 event_map_explode(w - 1, h - 1);
             }
 
             continue;
         }
-        
+
         while(slot != NULL) {
             struct player *p = slot->p;
 
@@ -252,7 +252,7 @@ void bullet_explode(struct bullet *b)
 
                 break;
             }
-            
+
             slot = slot->next;
         }
     }
@@ -304,7 +304,7 @@ struct bullet *bullets_add(struct bullets *bullets, struct bullet *b)
     new->b->sx = b->sx;
     new->b->sy = b->sy;
     new->b->direction = b->direction;
-    
+
     bullets->last = new;
 
     if(bullets->root == NULL) {
@@ -317,7 +317,7 @@ struct bullet *bullets_add(struct bullets *bullets, struct bullet *b)
 enum bullets_enum_t bullets_remove(struct bullets *bullets, struct bullet *b)
 {
     struct bullets_node *bullet = bullets->root;
-    
+
     while(bullet != NULL) {
         struct bullet *cb = bullet->b;
 
@@ -340,32 +340,32 @@ enum bullets_enum_t bullets_remove(struct bullets *bullets, struct bullet *b)
             } else {
                 bullets->root = NULL;
             }
-            
+
             free(bullet->b);
             free(bullet);
-            
+
             return BULLETS_OK;
         }
 
         bullet = bullet->next;
     }
-    
+
     return BULLETS_ERROR;
 }
 
 void bullets_proceed(struct bullets *bullets)
 {
     struct bullets_node *bullet = bullets->root;
-    
+
     while(bullet != NULL) {
         struct bullet *b = bullet->b;
         struct weapon *w = &(weapons[b->type]);
         int bx = b->x;
         int by = b->y;
-        
+
         for(;;) {
             struct players_slot *slot = players->root;
-            
+
             switch(b->direction) {
             case DIRECTION_LEFT:
                 if(w->bullets_distance > 0 && b->x < bx - w->bullets_speed) {
@@ -378,9 +378,9 @@ void bullets_proceed(struct bullets *bullets)
                     bullets_remove(bullets, b);
                     goto outer;
                 }
-                
+
                 b->x--;
-                
+
                 break;
             case DIRECTION_RIGHT:
                 if(w->bullets_distance > 0 && b->x > bx + w->bullets_speed) {
@@ -393,9 +393,9 @@ void bullets_proceed(struct bullets *bullets)
                     bullets_remove(bullets, b);
                     goto outer;
                 }
-                
+
                 b->x++;
-                
+
                 break;
             case DIRECTION_UP:
                 if(w->bullets_distance > 0 && b->y < by - w->bullets_speed) {
@@ -408,9 +408,9 @@ void bullets_proceed(struct bullets *bullets)
                     bullets_remove(bullets, b);
                     goto outer;
                 }
-                
+
                 b->y--;
-                
+
                 break;
             case DIRECTION_DOWN:
                 if(w->bullets_distance > 0 && b->y > by + w->bullets_speed) {
@@ -423,9 +423,9 @@ void bullets_proceed(struct bullets *bullets)
                     bullets_remove(bullets, b);
                     goto outer;
                 }
-                
+
                 b->y++;
-                
+
                 break;
             default:
                 break;
@@ -476,7 +476,7 @@ void bonuses_free(struct bonuses *bonuses)
     struct bonuses_node *cbonus, *nbonus;
 
     nbonus = bonuses->root;
-    
+
     while(nbonus != NULL) {
         cbonus = nbonus;
         nbonus = nbonus->next;
@@ -560,13 +560,13 @@ void *recv_mngr_func(void *arg)
     struct sockaddr_storage client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
     struct msg_queue_node *qnode;
-        
+
     qnode = malloc(sizeof(struct msg_queue_node));
     qnode->data = malloc(sizeof(struct msg));
     qnode->addr = malloc(sizeof(struct sockaddr_storage));
 
     queue_mngr_ticks = ticks_start();
-    
+
     while("hope is not dead") {
         int n = poll(fds, nfds, -1);
         if(n > 0)
@@ -581,31 +581,39 @@ void *recv_mngr_func(void *arg)
 
                     if(recvfrom(fds[n].fd, buf, sizeof(struct msg), 0,
                                 (struct sockaddr *) &client_addr,
-                                &client_addr_len) < 0) {
+                                &client_addr_len) != sizeof (struct msg)) {
                         perror("server: recvfrom");
                         continue;
                     }
 
-                    msg_unpack(buf, qnode->data);
-                    qnode->addr = &client_addr;
-                    pthread_mutex_lock(&msgqueue_mutex);
-                    if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
-                        WARN("server: msgqueue_push: couldn't push data into queue.\n");
+                    if (msg_unpack(buf, qnode->data))
+                    {
+                        qnode->addr = &client_addr;
+                        pthread_mutex_lock(&msgqueue_mutex);
+                        if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
+                            WARN("server: msgqueue_push: couldn't push data"\
+                                    "into queue.\n");
+                        }
+                        pthread_mutex_unlock(&msgqueue_mutex);
                     }
-                    pthread_mutex_unlock(&msgqueue_mutex);
+                    else
+                    {
+                        WARN("server: packet malformed.\n");
+                        continue;
+                    }
                 }
     }
 
     return arg;
 }
-    
+
 void *queue_mngr_func(void *arg)
 {
     struct msg_queue_node *qnode;
 
     sleep(1);
-    
-    while("teh internetz exists") {        
+
+    while("teh internetz exists") {
         pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
 
         /* Handle messages(events). */
@@ -614,7 +622,7 @@ void *queue_mngr_func(void *arg)
 
             switch(qnode->data->type) {
             case MSGTYPE_CONNECT_ASK:
-                event_connect_ask(qnode);                
+                event_connect_ask(qnode);
                 break;
             case MSGTYPE_DISCONNECT_CLIENT:
                 event_disconnect_client(qnode);
@@ -632,7 +640,7 @@ void *queue_mngr_func(void *arg)
         }
 
         send_events();
-        
+
         pthread_mutex_unlock(&msgqueue_mutex);
     }
 }
@@ -645,13 +653,13 @@ void quit(int signum)
         pthread_cancel(recv_mngr_thread);
         pthread_cancel(queue_mngr_thread);
     }
-    
+
     pthread_join(recv_mngr_thread, NULL);
     pthread_join(queue_mngr_thread, NULL);
-    
+
     event_disconnect_server();
     send_events();
-    
+
     for(i = 0; i < nfds; i++)
         close(fds[i].fd);
     free(fds);
@@ -692,7 +700,7 @@ int main(int argc, char **argv)
     struct addrinfo hints;
     struct addrinfo *addr;
     int err, sockopt = 1;
-    
+
     signal(SIGINT, quit);
     signal(SIGHUP, quit);
     signal(SIGQUIT, quit);
@@ -703,7 +711,7 @@ int main(int argc, char **argv)
         WARN("Map couldn't be loaded: %s.\n", "default.map");
         exit(EXIT_FAILURE);
     }
-    
+
     msgqueue = msgqueue_init();
     players = players_init();
     bonuses = bonuses_init();
@@ -748,7 +756,7 @@ int main(int argc, char **argv)
 
     pthread_mutex_init(&msgqueue_mutex, NULL);
     pthread_cond_init(&queue_mngr_cond, NULL);
-    
+
     pthread_attr_init(&common_attr);
     pthread_attr_setdetachstate(&common_attr, PTHREAD_CREATE_JOINABLE);
 
@@ -756,6 +764,7 @@ int main(int argc, char **argv)
     pthread_create(&queue_mngr_thread, &common_attr, queue_mngr_func, NULL);
 
     quit(0);
-    
+
     return 0;
 }
+/* vim:set expandtab: */

@@ -315,7 +315,7 @@ void msg_pack(struct msg *m, uint8_t *buf)
     msgtype_func(m, buf);
 }
 
-void msg_unpack(uint8_t *buf, struct msg *m)
+bool msg_unpack(uint8_t *buf, struct msg *m)
 {
     void (*msgtype_func)(uint8_t*, struct msg*);
 
@@ -323,9 +323,14 @@ void msg_unpack(uint8_t *buf, struct msg *m)
     buf += 4;
     m->header.id = *buf++;
     m->type = *buf++;
-
-    msgtype_func = (void *) msgtype_unpack_funcs[m->type];
-    msgtype_func(buf, m);
+	/* check size */
+	if (m->type < sizeof (msgtype_unpack_funcs) / sizeof (void *))
+	{
+		msgtype_func = (void *) msgtype_unpack_funcs[m->type];
+		msgtype_func(buf, m);
+		return true;
+	}
+	return false;
 }
 
 enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
@@ -334,7 +339,7 @@ enum msg_batch_enum_t msg_batch_push(struct msg_batch *b, struct msg *m)
         msg_pack(m, &(b->chunks[b->size + 1]));
         b->size += sizeof(struct msg);
         MSGBATCH_SIZE(b)++;
-        
+
         return MSGBATCH_OK;
     }
 
@@ -346,7 +351,7 @@ uint8_t *msg_batch_pop(struct msg_batch *b)
     if(MSGBATCH_SIZE(b) > 0) {
         b->size -= sizeof(struct msg);
         MSGBATCH_SIZE(b)--;
-        
+
         return &(b->chunks[b->size + 1]);
     }
 
@@ -358,7 +363,7 @@ uint8_t *msg_batch_pop(struct msg_batch *b)
 uint64_t ticks_get(void)
 {
     struct timeval t;
-    
+
     if(gettimeofday(&t, NULL) < 0) {
         perror("cdata: gettimeofday");
         exit(EXIT_FAILURE);
@@ -429,7 +434,7 @@ struct map *map_load(uint8_t *name)
     int w, h;
 
     memset(m, 0, sizeof(struct map));
-    
+
     snprintf(path, 4096, "data/maps/%s", name);
     if((fmap = fopen(path, "r")) == NULL) {
 #ifdef _SERVER_
@@ -441,7 +446,7 @@ struct map *map_load(uint8_t *name)
          * When map loaded, msgqueue_mngr_func() calls
          * map_load() and than loading is finished.
          */
-        
+
         /* Recieved map dump into `path`. */
         return NULL;
 #endif
@@ -455,10 +460,10 @@ struct map *map_load(uint8_t *name)
     }
 
     m->height++;
-    
+
     while((c = getc(fmap)) != EOF) {
         w = 0;
-        
+
         while(c != '\n') {
             c = getc(fmap);
             w++;
@@ -468,15 +473,15 @@ struct map *map_load(uint8_t *name)
             printf("Map has an incorrect geometry: %s.\n", name);
             fclose(fmap);
             free(m);
-            
+
             return NULL;
         }
 
         m->height++;
     }
-    
+
     fseek(fmap, 0L, SEEK_SET);
-    
+
     m->objs = malloc(sizeof(uint8_t *) * m->height);
     for(h = 0; h < m->height; h++) {
         m->objs[h] = malloc(sizeof(uint8_t) * m->width);
@@ -486,7 +491,7 @@ struct map *map_load(uint8_t *name)
     while((c = getc(fmap)) != EOF) {
         w = 0;
 
-        while(c != '\n') { 
+        while(c != '\n') {
             if(c == MAP_EMPTY || c == MAP_WALL) {
                 m->objs[h][w] = c;
             } else if(c == MAP_RESPAWN) {
@@ -506,32 +511,32 @@ struct map *map_load(uint8_t *name)
                 printf("Incorrect symbol '%c' has been found at %dx%d.\n", c, w, h);
                 fclose(fmap);
                 map_unload(m);
-                
+
                 return NULL;
             }
-            
+
             c = fgetc(fmap);
             w++;
         }
-        
+
         h++;
     }
-    
+
     strncpy((char *) m->name, (char *) name, MAP_NAME_MAX_LEN);
-    
+
     fclose(fmap);
-    
+
     return m;
 }
 
 void map_unload(struct map *m)
 {
     int h;
-    
+
     for(h = 0; h < m->height; h++) {
         free(m->objs[h]);
     }
-    
+
     free(m->objs);
     free(m);
 }
@@ -563,7 +568,7 @@ enum collision_enum_t collision_check_player(struct player *p, struct map *m)
         if(sp != p && sp->pos_x == p->pos_x && sp->pos_y == p->pos_y) {
             return COLLISION_PLAYER;
         }
-        
+
         slot = slot->next;
     }
 #elif _CLIENT_
@@ -571,6 +576,6 @@ enum collision_enum_t collision_check_player(struct player *p, struct map *m)
         return COLLISION_PLAYER;
     }
 #endif
-    
+
     return COLLISION_NONE;
 }
