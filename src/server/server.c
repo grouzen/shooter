@@ -618,10 +618,11 @@ void *queue_mngr_func(void *arg)
             /* check player address  */
             if (qnode->player) {
                 /* require test */
-                if (memcmp (player->addr, qnode->addr,\
+                if (memcmp (qnode->player->addr, qnode->addr,\
                              sizeof (struct sockaddr_storage))) {
-                    INFO ("player %d migrate to new sockaddr\n", player->id);
-                    memcpy (player->addr, qnode->addr,\
+                    INFO ("player %d migrate to new sockaddr\n",\
+                            qnode->player->id);
+                    memcpy (qnode->player->addr, qnode->addr,\
                             sizeof (struct sockaddr_storage));
                 }
             }
