@@ -1,0 +1,5 @@
+src/client/*.o
+src/client/ui/ncurses/*.o
+src/server/*.o
+shooterd
+shooter_ncurses

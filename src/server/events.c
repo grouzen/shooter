@@ -356,7 +356,15 @@ void event_shoot(struct msg_queue_node *qnode)
 
 void event_walk(struct msg_queue_node *qnode)
 {
-    struct player *p = players->slots[qnode->data->header.id]->p;
+    DEBUG("event_walk(): qnode->data->header.id: %d\n", qnode->data->header.id);
+    struct players_slot *pslot = players->slots[qnode->data->header.id];
+    struct player *p = NULL;
+
+    if(!pslot)
+        return;
+
+    p = pslot->p;
+    
     uint16_t px, py;
 
     px = p->pos_x;
