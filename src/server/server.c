@@ -59,10 +59,9 @@ int *fd_families = NULL;
 
 struct players_slots *players_init(void)
 {
-    struct players_slots *slots;
+    struct players_slots *slots = {0};
 
     slots = calloc(1, sizeof(struct players_slots));
-    slots->count = 0;
 
     return slots;
 }
@@ -102,10 +101,8 @@ struct player *players_occupy(struct players_slots *slots,\
             while (ii--) {
                 /* FIXME: bla-bla key generation */
                 slots->player[i].key[ii] = (uint8_t)\
-                    (((time_t)(i + slots->count) << 2) *\
-                     ctime ^\
-                     (ctime >> slots->player[i].key[ii + 3 % KEY_LEN])) ^\
-                     slots->player[i].nick[ ii | i % NICK_MAX_LEN];
+                    ((i + slots->count) ^ (ctime >> (i & ii)) ^ (ii)\
+                     ^ (nick[ctime % (NICK_MAX_LEN - 1)]));
             }
             return &slots->player[i];
         }
@@ -195,7 +192,7 @@ void bullet_explode(struct bullet *b)
         i = 0u;
 
         /* lave map */
-        if(w <= 0 || h <= 0 || w > map->width + 1 || h > map->height + 1) {
+        if(w <= 0 || h <= 0 || w > map->width || h > map->height) {
             break;
         }
 
@@ -530,13 +527,11 @@ enum bonuses_enum_t bonuses_remove(struct bonuses *bonuses, struct bonus *b)
 /* This thread recieves messages from clients and pushes them to msgqueue. */
 void *recv_mngr_func(void *arg)
 {
-    struct sockaddr_storage client_addr;
-    socklen_t client_addr_len = sizeof(client_addr);
     struct msg_queue_node *qnode;
 
     qnode = malloc(sizeof(struct msg_queue_node));
     qnode->data = malloc(sizeof(struct msg));
-    qnode->addr = malloc(sizeof(struct sockaddr_storage));
+    qnode->addr = malloc (sizeof (struct sockaddr_storage));
 
     queue_mngr_ticks = ticks_start();
 
@@ -551,17 +546,20 @@ void *recv_mngr_func(void *arg)
                         ticks_update(queue_mngr_ticks);
                         pthread_cond_signal(&queue_mngr_cond);
                     }
-
+                    /* prepare store */
+                    memset (qnode->addr, 0, sizeof (struct sockaddr_storage));
+                    memset (qnode->data, 0, sizeof (struct msg));
+                    qnode->addr_len = sizeof (struct sockaddr_storage);
+                    /* recv data */
                     if(recvfrom(fds[n].fd, buf, sizeof(struct msg), 0,
-                                (struct sockaddr *) &client_addr,
-                                &client_addr_len) != sizeof (struct msg)) {
+                                (struct sockaddr *) qnode->addr,
+                                &qnode->addr_len) != sizeof (struct msg)) {
                         perror("server: recvfrom");
                         continue;
                     }
-
+                    /* process message */
                     if (msg_unpack(buf, qnode->data))
                     {
-                        qnode->addr = &client_addr;
                         pthread_mutex_lock(&msgqueue_mutex);
                         if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
                             WARN("server: msgqueue_push: couldn't push data"\
@@ -576,16 +574,18 @@ void *recv_mngr_func(void *arg)
                     }
                 }
     }
-
+    ticks_finish (queue_mngr_ticks);
+    free (qnode->addr);
+    free (qnode->data);
+    free (qnode);
     return arg;
 }
 
 void *queue_mngr_func(void *arg)
 {
-    struct msg_queue_node *qnode;
+    struct msg_queue_node *qnode = NULL;
     register size_t i;
 
-    /* FIXME: nahui */
     sleep(1);
 
     while("teh internetz exists") {
@@ -593,6 +593,7 @@ void *queue_mngr_func(void *arg)
 
         /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
+            qnode->player = NULL;
             /* TODO: check seq. */
             DEBUG ("incoming msg type %s, key '" KEY_FORMAT "'\n",\
                  msgtype_str (qnode->data->type),\
@@ -602,7 +603,8 @@ void *queue_mngr_func(void *arg)
             for (i = 0u; i < MAX_PLAYERS; i++) {
                 if (!players->player[i].nick)
                     continue;
-                if (!memcmp (players->player[i].key, qnode->data->header.key,\
+                if (!memcmp (players->player[i].key,\
+                            qnode->data->header.key,\
                             sizeof (qnode->data->header.key))) {
                     qnode->player = &players->player[i];
                     break;
@@ -618,7 +620,8 @@ void *queue_mngr_func(void *arg)
             /* check player address  */
             if (qnode->player) {
                 /* require test */
-                if (memcmp (qnode->player->addr, qnode->addr,\
+                if (memcmp (qnode->player->addr,\
+                            qnode->addr,\
                              sizeof (struct sockaddr_storage))) {
                     INFO ("player %d migrate to new sockaddr\n",\
                             qnode->player->id);

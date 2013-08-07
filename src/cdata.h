@@ -67,9 +67,9 @@
      (y) >= (py) - PLAYER_VIEWPORT_HEIGHT / 2 &&    \
      (y) <= (py) + PLAYER_VIEWPORT_HEIGHT / 2)
 
-#define KEY_FORMAT "%08x%08x%08x%08x%08x%08x%08x%08x"
+#define KEY_FORMAT "%08x %08x %08x %08x %08x %08x %08x %08x"
 #define KEY_EXPAND(KEY) \
-             htonl (*((uint32_t*)KEY)),\
+             htonl (*((uint32_t*)((KEY) + 0))),\
              htonl (*((uint32_t*)((KEY) + 4))),\
              htonl (*((uint32_t*)((KEY) + 8))),\
              htonl (*((uint32_t*)((KEY) + 12))),\

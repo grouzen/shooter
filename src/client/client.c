@@ -618,8 +618,10 @@ int main(int argc, char **argv)
     INFO ("free ui\n");
     ui_free ();
 
-    INFO ("send disconnect info\n");
-    event_disconnect_client ();
+    if (player->connected) {
+        INFO ("send disconnect info\n");
+        event_disconnect_client ();
+    }
 
     if (map != NULL) {
         INFO ("unload map\n");
