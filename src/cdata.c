@@ -82,11 +82,13 @@ static uint16_t unpack16_int(uint8_t *buf)
 static void
 msgtype_none_pack (struct msg *m, uint8_t *buf)
 {
+    DEBUG ("ping packet pack: %s, %p\n", msgtype_str (m->type), (void *)buf);
 }
 
 static void
 msgtype_none_unpack (uint8_t *buf, struct msg *m)
 {
+    DEBUG ("ping packet unpack: %s, %p\n", msgtype_str (m->type), (void *)buf);
 }
 
 static void msgtype_walk_pack(struct msg *m, uint8_t *buf)
@@ -425,10 +427,11 @@ struct player *player_init(struct player *p)
         p = calloc(1, sizeof(struct player));
     if (p)
     {
-        p->nick = calloc(1, sizeof(uint8_t) * NICK_MAX_LEN);
 #ifdef _SERVER_
+        memset (p, 0, sizeof (struct player));
         p->addr = calloc(1, sizeof(struct sockaddr_storage));
 #endif
+        p->nick = calloc(1, sizeof(uint8_t) * (NICK_MAX_LEN + 1));
         p->hp = 100;
         p->armor = 50;
     }

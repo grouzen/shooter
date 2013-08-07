@@ -29,6 +29,7 @@ struct msg_queue_node {
     struct msg *data;
     struct player *player;
     struct sockaddr_storage *addr;
+    socklen_t addr_len;
 };
 
 struct msg_queue {

@@ -527,13 +527,11 @@ enum bonuses_enum_t bonuses_remove(struct bonuses *bonuses, struct bonus *b)
 /* This thread recieves messages from clients and pushes them to msgqueue. */
 void *recv_mngr_func(void *arg)
 {
-    struct sockaddr_storage client_addr;
-    socklen_t client_addr_len = sizeof(client_addr);
     struct msg_queue_node *qnode;
 
     qnode = malloc(sizeof(struct msg_queue_node));
     qnode->data = malloc(sizeof(struct msg));
-    qnode->addr = malloc(sizeof(struct sockaddr_storage));
+    qnode->addr = malloc (sizeof (struct sockaddr_storage));
 
     queue_mngr_ticks = ticks_start();
 
@@ -548,17 +546,20 @@ void *recv_mngr_func(void *arg)
                         ticks_update(queue_mngr_ticks);
                         pthread_cond_signal(&queue_mngr_cond);
                     }
-
+                    /* prepare store */
+                    memset (qnode->addr, 0, sizeof (struct sockaddr_storage));
+                    memset (qnode->data, 0, sizeof (struct msg));
+                    qnode->addr_len = sizeof (struct sockaddr_storage);
+                    /* recv data */
                     if(recvfrom(fds[n].fd, buf, sizeof(struct msg), 0,
-                                (struct sockaddr *) &client_addr,
-                                &client_addr_len) != sizeof (struct msg)) {
+                                (struct sockaddr *) qnode->addr,
+                                &qnode->addr_len) != sizeof (struct msg)) {
                         perror("server: recvfrom");
                         continue;
                     }
-
+                    /* process message */
                     if (msg_unpack(buf, qnode->data))
                     {
-                        qnode->addr = &client_addr;
                         pthread_mutex_lock(&msgqueue_mutex);
                         if(msgqueue_push(msgqueue, qnode) == MSGQUEUE_ERROR) {
                             WARN("server: msgqueue_push: couldn't push data"\
@@ -573,7 +574,10 @@ void *recv_mngr_func(void *arg)
                     }
                 }
     }
-
+    ticks_finish (queue_mngr_ticks);
+    free (qnode->addr);
+    free (qnode->data);
+    free (qnode);
     return arg;
 }
 
@@ -616,7 +620,8 @@ void *queue_mngr_func(void *arg)
             /* check player address  */
             if (qnode->player) {
                 /* require test */
-                if (memcmp (qnode->player->addr, qnode->addr,\
+                if (memcmp (qnode->player->addr,\
+                            qnode->addr,\
                              sizeof (struct sockaddr_storage))) {
                     INFO ("player %d migrate to new sockaddr\n",\
                             qnode->player->id);

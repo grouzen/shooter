@@ -263,7 +263,7 @@ void event_disconnect_client(struct msg_queue_node *qnode)
 
 void event_connect_ask(struct msg_queue_node *qnode)
 {
-    struct player *newplayer;
+    struct player *newplayer = NULL;
     newplayer = players_occupy(players, qnode->addr, qnode->data->event.connect_ask.nick);
 
     if(newplayer == NULL) {
@@ -290,9 +290,8 @@ void event_connect_ask(struct msg_queue_node *qnode)
             .y = 0
         };
 
-        INFO("New player connected with nick %s, key '" KEY_FORMAT\
-             "' Total players: %u.\n",
-             newplayer->nick, KEY_EXPAND (newplayer->key), players->count);
+        INFO ("New player, %s, count: %u\n", newplayer->nick, players->count);
+        INFO ("| assign key: '" KEY_FORMAT "'\n", KEY_EXPAND (newplayer->key));
 
         /* Connect new player. */
         event_connect_ok(newplayer);
