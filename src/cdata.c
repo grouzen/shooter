@@ -79,6 +79,16 @@ static uint16_t unpack16_int(uint8_t *buf)
 /* Here we have a couple of routines for packing subtypes (member `event') of
  * the structure `msg'.
  */
+static void
+msgtype_none_pack (struct msg *m, uint8_t *buf)
+{
+}
+
+static void
+msgtype_none_unpack (uint8_t *buf, struct msg *m)
+{
+}
+
 static void msgtype_walk_pack(struct msg *m, uint8_t *buf)
 {
     *buf++ = m->event.walk.direction;
@@ -132,7 +142,6 @@ static void msgtype_connect_ask_pack(struct msg *m, uint8_t *buf)
 static void msgtype_connect_ok_pack(struct msg *m, uint8_t *buf)
 {
     *buf++ = m->event.connect_ok.ok;
-    *buf++ = m->event.connect_ok.id;
 
     strncpy((char *) buf,
         (char *) m->event.connect_ok.mapname, MAP_NAME_MAX_LEN);
@@ -221,7 +230,6 @@ static void msgtype_connect_ask_unpack(uint8_t *buf, struct msg *m)
 static void msgtype_connect_ok_unpack(uint8_t *buf, struct msg *m)
 {
     m->event.connect_ok.ok = (uint8_t) *buf++;
-    m->event.connect_ok.id = (uint8_t) *buf++;
 
     strncpy((char *) m->event.connect_ok.mapname,
         (char *) buf, MAP_NAME_MAX_LEN);
@@ -266,6 +274,7 @@ static void msgtype_map_explode_unpack(uint8_t *buf, struct msg *m)
  * calls table. It must be synced with enum declared in cdata.h.
  */
 intptr_t msgtype_pack_funcs[] = {
+    (intptr_t) msgtype_none_pack,
     (intptr_t) msgtype_walk_pack,
     (intptr_t) msgtype_player_position_pack,
     (intptr_t) msgtype_player_hit_pack,
@@ -283,6 +292,7 @@ intptr_t msgtype_pack_funcs[] = {
 };
 
 intptr_t msgtype_unpack_funcs[] = {
+    (intptr_t) msgtype_none_unpack,
     (intptr_t) msgtype_walk_unpack,
     (intptr_t) msgtype_player_position_unpack,
     (intptr_t) msgtype_player_hit_unpack,
@@ -304,25 +314,34 @@ void msg_pack(struct msg *m, uint8_t *buf)
 {
     void (*msgtype_func)(struct msg*, uint8_t*);
     uint32_t seq = m->header.seq;
+    register size_t i = KEY_LEN;
 
     pack_int32(buf, htonl(seq));
 
     buf += 4;
-    *buf++ = m->header.id;
+    while (i--)
+        *buf++ = m->header.key[i];
     *buf++ = m->type;
 
     msgtype_func = (void *) msgtype_pack_funcs[m->type];
     msgtype_func(m, buf);
+/*    DEBUG ("pack type %s seq %d\n", msgtype_str (m->type), m->header.seq);
+*/
 }
 
 bool msg_unpack(uint8_t *buf, struct msg *m)
 {
     void (*msgtype_func)(uint8_t*, struct msg*);
-
+    register size_t i = KEY_LEN;
     m->header.seq = ntohl(unpack_int32(buf));
     buf += 4;
-    m->header.id = *buf++;
+    while (i--) {
+        m->header.key[i] = *buf++;
+    }
     m->type = *buf++;
+
+/*    DEBUG ("unpack type %s seq %d\n", msgtype_str (m->type), m->header.seq);
+*/
 	/* check size */
 	if (m->type < sizeof (msgtype_unpack_funcs) / sizeof (void *))
 	{
@@ -400,19 +419,19 @@ uint64_t ticks_get_diff(struct ticks *tc)
     return ticks_get() - (tc->offset + tc->count);
 }
 
-struct player *player_init(void)
+struct player *player_init(struct player *p)
 {
-    struct player *p;
-
-    p = malloc(sizeof(struct player));
-    memset(p, 0, sizeof(struct player));
-    p->nick = malloc(sizeof(uint8_t) * NICK_MAX_LEN);
+    if (!p)
+        p = calloc(1, sizeof(struct player));
+    if (p)
+    {
+        p->nick = calloc(1, sizeof(uint8_t) * NICK_MAX_LEN);
 #ifdef _SERVER_
-    p->addr = malloc(sizeof(struct sockaddr_storage));
+        p->addr = calloc(1, sizeof(struct sockaddr_storage));
 #endif
-    p->hp = 100;
-    p->armor = 50;
-
+        p->hp = 100;
+        p->armor = 50;
+    }
     return p;
 }
 
@@ -421,8 +440,11 @@ void player_free(struct player *p)
     free(p->nick);
 #ifdef _SERVER_
     free(p->addr);
-#endif
+    /* logical free */
+    p->nick = NULL;
+#else
     free(p);
+#endif
 }
 
 /* TODO: load map from file. */
@@ -555,21 +577,23 @@ enum collision_enum_t collision_check_player(struct player *p, struct map *m)
 #endif
 {
 #ifdef _SERVER_
-    struct players_slot *slot = s->root;
+    register size_t i;
 #endif
     if(p->pos_x <= 0 || p->pos_y <= 0 || p->pos_x >= m->width + 1 ||
        p->pos_y >= m->height + 1 || m->objs[p->pos_y - 1][p->pos_x - 1] == MAP_WALL) {
         return COLLISION_WALL;
     }
 #ifdef _SERVER_
-    while(slot != NULL) {
-        struct player *sp = slot->p;
-
-        if(sp != p && sp->pos_x == p->pos_x && sp->pos_y == p->pos_y) {
+    for (i = 0u; i < MAX_PLAYERS; i++)
+    {
+        /* if ISNULL (player[i].nick) -> slot not allocated */
+        if (s->player[i].nick &&\
+                s->player[i].id != p->id &&\
+                s->player[i].pos_x == p->pos_x &&\
+                s->player[i].pos_y == p->pos_y)
+        {
             return COLLISION_PLAYER;
         }
-
-        slot = slot->next;
     }
 #elif _CLIENT_
     if(m->objs[p->pos_y - 1][p->pos_x - 1] == MAP_PLAYER) {
@@ -579,3 +603,41 @@ enum collision_enum_t collision_check_player(struct player *p, struct map *m)
 
     return COLLISION_NONE;
 }
+
+const char *msgtype_str (enum msgtype msgtype) {
+    switch (msgtype) {
+    case MSGTYPE_NONE:
+        return "NONE";
+    case MSGTYPE_WALK:
+        return "WALK";
+    case MSGTYPE_PLAYER_POSITION:
+        return "PLAYER_POSITION";
+    case MSGTYPE_PLAYER_HIT:
+        return "PLAYER_HIT";
+    case MSGTYPE_PLAYER_KILLED:
+        return "PLAYER_KILLED";
+    case MSGTYPE_ENEMY_POSITION:
+        return "ENEMY_POSITION";
+    case MSGTYPE_SHOOT:
+        return "SHOOT";
+    case MSGTYPE_CONNECT_ASK:
+        return "CONNECT_ASK";
+    case MSGTYPE_CONNECT_OK:
+        return "CONNECT_OK";
+    case MSGTYPE_CONNECT_NOTIFY:
+        return "CONNECT_NOTIFY";
+    case MSGTYPE_DISCONNECT_SERVER:
+        return "DISCONNECT_SERVER";
+    case MSGTYPE_DISCONNECT_CLIENT:
+        return "DISCONNECT_CLIENT";
+    case MSGTYPE_DISCONNECT_NOTIFY:
+        return "DISCONNECT_NOTIFY";
+    case MSGTYPE_ON_BONUS:
+        return "ON_BONUS";
+    case MSGTYPE_MAP_EXPLODE:
+        return "MAX_EXPLODE";
+    default:
+        return "_UNKNOWN_";
+    }
+}
+/* vim:set expandtab: */
