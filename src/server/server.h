@@ -27,6 +27,7 @@
 
 struct msg_queue_node {
     struct msg *data;
+    struct player *player;
     struct sockaddr_storage *addr;
 };
 
@@ -103,6 +104,7 @@ void bonuses_free(struct bonuses*);
 struct bonus *bonuses_search(struct bonuses*, uint16_t, uint16_t);
 struct bonus *bonuses_add(struct bonuses*, struct bonus*);
 enum bonuses_enum_t bonuses_remove(struct bonuses*, struct bonus*);
+void send_to_player (const void *buf, size_t len, struct player *player);
 void send_to(const void *buf, size_t len, const struct sockaddr *dest,
         socklen_t addrlen);
 
@@ -116,3 +118,4 @@ extern int nfds;
 extern int *fd_families;
 
 #endif
+/* vim:set expandtab: */

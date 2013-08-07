@@ -84,6 +84,8 @@ struct player *players_occupy(struct players_slots *slots,\
         struct sockaddr_storage *addr, uint8_t *nick)
 {
     register size_t i = 0u;
+    register size_t ii = 0u;
+    time_t ctime = time (NULL);
     if (slots->count >= MAX_PLAYERS)
         return NULL;
     for (; i < MAX_PLAYERS; i++)
@@ -94,8 +96,17 @@ struct player *players_occupy(struct players_slots *slots,\
         {
             memcpy (slots->player[i].addr, addr, sizeof (struct sockaddr_storage));
             strncpy ((char *)slots->player[i].nick, (const char *)nick, NICK_MAX_LEN);
-            slots->player[i].id = i;
             slots->count++;
+            slots->player[i].id = i;
+            ii = KEY_LEN;
+            while (ii--) {
+                /* FIXME: bla-bla key generation */
+                slots->player[i].key[ii] = (uint8_t)\
+                    (((time_t)(i + slots->count) << 2) *\
+                     ctime ^\
+                     (ctime >> slots->player[i].key[ii + 3 % KEY_LEN])) ^\
+                     slots->player[i].nick[ ii | i % NICK_MAX_LEN];
+            }
             return &slots->player[i];
         }
     }
@@ -572,6 +583,7 @@ void *recv_mngr_func(void *arg)
 void *queue_mngr_func(void *arg)
 {
     struct msg_queue_node *qnode;
+    register size_t i;
 
     /* FIXME: nahui */
     sleep(1);
@@ -582,7 +594,38 @@ void *queue_mngr_func(void *arg)
         /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
             /* TODO: check seq. */
+            DEBUG ("incoming msg type %s, key '" KEY_FORMAT "'\n",\
+                 msgtype_str (qnode->data->type),\
+                 KEY_EXPAND (qnode->data->header.key));
 
+            /* search player */
+            for (i = 0u; i < MAX_PLAYERS; i++) {
+                if (!players->player[i].nick)
+                    continue;
+                if (!memcmp (players->player[i].key, qnode->data->header.key,\
+                            sizeof (qnode->data->header.key))) {
+                    qnode->player = &players->player[i];
+                    break;
+                }
+
+            }
+            /* if player not found, drop message */
+            if (!qnode->player && qnode->data->type != MSGTYPE_CONNECT_ASK) {
+                INFO ("player send unknown key: " KEY_FORMAT "\n",\
+                     KEY_EXPAND (qnode->data->header.key));
+                continue;
+            }
+            /* check player address  */
+            if (qnode->player) {
+                /* require test */
+                if (memcmp (player->addr, qnode->addr,\
+                             sizeof (struct sockaddr_storage))) {
+                    INFO ("player %d migrate to new sockaddr\n", player->id);
+                    memcpy (player->addr, qnode->addr,\
+                            sizeof (struct sockaddr_storage));
+                }
+            }
+            /* */
             switch(qnode->data->type) {
             case MSGTYPE_CONNECT_ASK:
                 event_connect_ask(qnode);
@@ -635,6 +678,20 @@ void quit(int signum)
     pthread_mutex_destroy(&msgqueue_mutex);
     pthread_cond_destroy(&queue_mngr_cond);
     pthread_exit(NULL);
+}
+
+/* FIXME: Veri important
+ * hack with copy key to first bytes in message must be replaced
+ * additionally, this must be fixed in recv_mngr_func (client.c)
+ * fukken c
+ * packed message:
+ *    4 bytes $seq | KEY_LEN $header.key
+ */
+void
+send_to_player (const void *buf, size_t len, struct player *player) {
+    DEBUG ("send batch to player %d, seq %u\n", player->id, player->seq);
+    send_to (buf, len, (struct sockaddr *)player->addr,
+                    sizeof (struct sockaddr_storage));
 }
 
 /* sendto() substitute

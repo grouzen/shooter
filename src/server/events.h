@@ -32,7 +32,7 @@ void event_on_bonus(struct player*, struct bonus*);
 void event_disconnect_server(void);
 void event_disconnect_notify(uint8_t*);
 void event_connect_notify(struct player*);
-void event_connect_ok(struct player*, uint8_t);
+void event_connect_ok(struct player*);
 void send_events(void);
 void event_disconnect_client(struct msg_queue_node*);
 void event_connect_ask(struct msg_queue_node*);

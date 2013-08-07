@@ -44,6 +44,9 @@ void event_seqnotify_all (struct msg *msg, struct player *exclude)
                 (exclude && exclude->id != players->player[i].id))
         {
             players->player[i].seq++;
+            msg->header.seq = players->player[i].seq;
+            memcpy (msg->header.key, players->player[i].key,\
+                     sizeof (msg->header.key));
             msg_batch_push (&players->player[i].msgbatch, msg);
         }
     }
@@ -53,7 +56,8 @@ void event_enemy_position(struct player *p, uint16_t x, uint16_t y)
 {
     struct msg msg;
 
-    p->seq++;
+    memcpy (msg.header.key, p->key, sizeof (msg.header.key));
+    msg.header.seq = p->seq++;
 
     msg.type = MSGTYPE_ENEMY_POSITION;
     msg.event.enemy_position.pos_x = x;
@@ -65,7 +69,8 @@ void event_player_position(struct player *p)
 {
     struct msg msg;
 
-    p->seq++;
+    memcpy (msg.header.key, p->key, sizeof (msg.header.key));
+    msg.header.seq = p->seq++;
 
     msg.type = MSGTYPE_PLAYER_POSITION;
     msg.event.player_position.pos_x = p->pos_x;
@@ -86,6 +91,7 @@ void event_player_hit(struct player *ptarget, struct player *pkiller, uint16_t d
 
     INFO("Player %s hits %s, damage: %u\n", pkiller->nick, ptarget->nick, damage);
 
+    memcpy (msg.header.key, ptarget->key, sizeof (msg.header.key));
     ptarget->seq++;
 
     if(ptarget->armor > damage / 2) {
@@ -114,29 +120,21 @@ void event_player_hit(struct player *ptarget, struct player *pkiller, uint16_t d
 void event_map_explode(uint16_t w, uint16_t h)
 {
     struct msg msg;
-    register size_t i;
 
     msg.type = MSGTYPE_MAP_EXPLODE;
     msg.event.map_explode.w = w;
     msg.event.map_explode.h = h;
 
     INFO("Map has been destroyed at %ux%u.\n", w, h);
-    for (i = 0u; i < MAX_PLAYERS; i++)
-    {
-        /* skip unallocated slot */
-        if (players->player[i].nick)
-        {
-            players->player[i].seq++;
-            msg_batch_push (&(players->player[i].msgbatch), &msg);
-        }
-    }
+    event_seqnotify_all (&msg, NULL);
 }
 
 void event_on_bonus(struct player *p, struct bonus *bonus)
 {
     struct msg msg;
 
-    p->seq++;
+    memcpy (msg.header.key, p->key, sizeof (msg.header.key));
+    msg.header.seq = p->seq++;
 
     switch(bonus->type) {
     case BONUSTYPE_WEAPON:
@@ -186,11 +184,12 @@ void event_connect_notify(struct player *p)
     event_seqnotify_all (&msg, p);
 }
 
-void event_connect_ok(struct player *p, uint8_t ok)
+void event_connect_ok(struct player *p)
 {
     struct msg msg;
 
-    p->seq++;
+    memcpy (msg.header.key, p->key, sizeof (msg.header.key));
+    msg.header.seq = p->seq++;
 
 
     /* TODO: change this event.
@@ -198,8 +197,7 @@ void event_connect_ok(struct player *p, uint8_t ok)
        must be loaded from server each time.
      */
     msg.type = MSGTYPE_CONNECT_OK;
-    msg.event.connect_ok.id = p->id;
-    msg.event.connect_ok.ok = ok;
+    msg.event.connect_ok.ok = 1;
     strncpy((char *) msg.event.connect_ok.mapname,
             (char *) map->name, MAP_NAME_MAX_LEN);
     msg_batch_push(&(p->msgbatch), &msg);
@@ -234,9 +232,8 @@ void send_events(void)
         /* flush batch */
         if (MSGBATCH_SIZE (&lplayer->msgbatch) > 0)
         {
-            send_to (lplayer->msgbatch.chunks, lplayer->msgbatch.size + 1,\
-                    (struct sockaddr *)lplayer->addr,
-                    sizeof (struct sockaddr_storage));
+            send_to_player (lplayer->msgbatch.chunks,\
+                            lplayer->msgbatch.size + 1, lplayer);
         }
         /* Refresh msgbatch for each player. */
         memset (&lplayer->msgbatch, 0, sizeof (struct msg_batch));
@@ -248,14 +245,14 @@ void event_disconnect_client(struct msg_queue_node *qnode)
     uint8_t nick[NICK_MAX_LEN];
 
     /* Copy nick of the disconnected player. */
-    if(players->player[qnode->data->header.id].nick) {
+    if(qnode->player->nick) {
         strncpy((char *) nick,\
-                (const char *)players->player[qnode->data->header.id].nick,\
+                (const char *)qnode->player->nick,\
                 NICK_MAX_LEN);
     }
 
-    if(players_release(players, qnode->data->header.id) == PLAYERS_ERROR) {
-        WARN("Couldn't remove the player from slots: %u\n", qnode->data->header.id);
+    if(players_release(players, qnode->player->id) == PLAYERS_ERROR) {
+        WARN("Couldn't remove the player from slots: %u\n", qnode->player->id);
         return;
     }
 
@@ -293,11 +290,12 @@ void event_connect_ask(struct msg_queue_node *qnode)
             .y = 0
         };
 
-        INFO("New player connected with nick %s. Total players: %u.\n",
-             newplayer->nick, players->count);
+        INFO("New player connected with nick %s, key '" KEY_FORMAT\
+             "' Total players: %u.\n",
+             newplayer->nick, KEY_EXPAND (newplayer->key), players->count);
 
         /* Connect new player. */
-        event_connect_ok(newplayer, 1);
+        event_connect_ok(newplayer);
 
         /* Get random respawn point. */
         srand((unsigned int) time(NULL));
@@ -318,7 +316,7 @@ void event_connect_ask(struct msg_queue_node *qnode)
 
 void event_shoot(struct msg_queue_node *qnode)
 {
-    struct player *p = &players->player[qnode->data->header.id];
+    struct player *p = qnode->player;
     struct bullet b = {
         .player = p,
         .type = p->weapons.current,
@@ -338,7 +336,7 @@ void event_shoot(struct msg_queue_node *qnode)
 
 void event_walk(struct msg_queue_node *qnode)
 {
-    struct player *p = &players->player[qnode->data->header.id];
+    struct player *p = qnode->player;
     uint16_t px, py;
 
     px = p->pos_x;

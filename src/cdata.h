@@ -26,10 +26,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#if _SERVER_
+# define _xfprintf(fd, ...) fprintf (fd, ##__VA_ARGS__)
+#else
+# define _xfprintf(fd, ...) fprintf (stderr, ##__VA_ARGS__)
+#endif
+
 #ifdef _DEBUG_
 #define DEBUG(format, ...)                              \
     do {                                                \
-        printf("[ DEBUG ]: " format, ##__VA_ARGS__);    \
+        _xfprintf(stdout, "[ DEBUG ] (%s:%d): " format, __FILE__, __LINE__\
+            , ##__VA_ARGS__);\
     } while(0)
 #else
 #define DEBUG(format, ...) do { } while(0)
@@ -37,12 +44,12 @@
 
 #define INFO(format, ...)                                        \
     do {                                                         \
-        printf("[ INFO ]: " format, ##__VA_ARGS__);              \
+        _xfprintf(stdout, "[ INFO ]: " format, ##__VA_ARGS__);              \
     } while(0)
 
 #define WARN(format, ...)                                        \
     do {                                                         \
-        fprintf(stderr, "[ WARN ]: " format, ##__VA_ARGS__);     \
+        _xfprintf(stderr, "[ WARN ]: " format, ##__VA_ARGS__);     \
     } while(0)
 
 /* Must be less than 25 because terminal's geometry is 80x25
@@ -52,6 +59,7 @@
 #define PLAYER_VIEWPORT_HEIGHT 21
 
 #define NICK_MAX_LEN 16
+#define KEY_LEN 32
 
 #define IN_PLAYER_VIEWPORT(x, y, px, py)            \
     ((x) >= (px) - PLAYER_VIEWPORT_WIDTH / 2 &&     \
@@ -59,6 +67,16 @@
      (y) >= (py) - PLAYER_VIEWPORT_HEIGHT / 2 &&    \
      (y) <= (py) + PLAYER_VIEWPORT_HEIGHT / 2)
 
+#define KEY_FORMAT "%08x%08x%08x%08x%08x%08x%08x%08x"
+#define KEY_EXPAND(KEY) \
+             htonl (*((uint32_t*)KEY)),\
+             htonl (*((uint32_t*)((KEY) + 4))),\
+             htonl (*((uint32_t*)((KEY) + 8))),\
+             htonl (*((uint32_t*)((KEY) + 12))),\
+             htonl (*((uint32_t*)((KEY) + 16))),\
+             htonl (*((uint32_t*)((KEY) + 20))),\
+             htonl (*((uint32_t*)((KEY) + 24))),\
+             htonl (*((uint32_t*)((KEY) + 28)))
 
 /* Each object on the map is represented by ascii symbol. */
 #define MAP_EMPTY ' '
@@ -100,9 +118,9 @@ struct map {
 };
 
 /* Structures that describe message body. */
-enum {
-    //MSGTYPE_NONE = -1,
-    MSGTYPE_WALK = 0,
+enum msgtype {
+    MSGTYPE_NONE = 0,
+    MSGTYPE_WALK,
     MSGTYPE_PLAYER_POSITION,
     MSGTYPE_PLAYER_HIT,
     MSGTYPE_PLAYER_KILLED,
@@ -151,7 +169,6 @@ struct msgtype_connect_ask {
 
 struct msgtype_connect_ok {
     uint8_t ok; // > 0 - ok.
-    uint8_t id;
     uint8_t mapname[MAP_NAME_MAX_LEN];
 };
 
@@ -185,9 +202,10 @@ struct msgtype_map_explode {
 /*
  * General message structures
  */
+
 struct msg_header {
     uint32_t seq;
-    uint8_t id;
+    uint8_t key[KEY_LEN];
 };
 
 struct msg {
@@ -318,8 +336,11 @@ struct player {
 #ifdef _SERVER_
     struct sockaddr_storage *addr;
     struct msg_batch msgbatch;
-#endif
     uint8_t id; /* slot's number. */
+#else
+    bool connected;
+#endif
+    uint8_t key[KEY_LEN];
     uint8_t *nick;
     uint32_t seq;
     uint8_t direction;
@@ -373,6 +394,7 @@ enum msg_queue_enum_t {
     MSGQUEUE_OK
 };
 
+const char *msgtype_str (enum msgtype);
 void msg_pack(struct msg*, uint8_t*);
 bool msg_unpack(uint8_t*, struct msg*);
 enum msg_batch_enum_t msg_batch_push(struct msg_batch*, struct msg*);
