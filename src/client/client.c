@@ -41,14 +41,20 @@
 #include "ui/backend.h"
 #include "client.h"
 
-pthread_t ui_mngr_thread, ui_event_mngr_thread, recv_mngr_thread, queue_mngr_thread;
+/* locks */
+pthread_mutex_t player_mutex, map_mutex, queue_mutex;
+pthread_cond_t queue_cond;
+sem_t showflow;
+
+/* thread */
+bool ui_mngr, ui_event_mngr;
+pthread_t ui_mngr_thread, ui_event_mngr_thread, queue_mngr_thread;
 pthread_attr_t common_attr;
-pthread_mutex_t msgqueue_mutex, map_mutex, player_mutex;
-pthread_cond_t queue_mngr_cond;
-sem_t queue_mngr_sem;
-struct msg_queue *msgqueue = NULL;
-struct player *player = NULL;
-struct map *map = NULL;
+
+/* game */
+struct msg_queue *msgqueue;
+struct player *player;
+struct map *map;
 int sd;
 
 struct msg_queue *msgqueue_init(void)
@@ -100,15 +106,14 @@ struct msg *msgqueue_pop(struct msg_queue *q)
 
 void send_event(struct msg *m)
 {
-    uint8_t buf[sizeof(struct msg)];
+    uint8_t buf[sizeof(struct msg)] = {0};
 
     pthread_mutex_lock(&player_mutex);
-    m->header.id = player->id;
+    memcpy (m->header.key, player->key, sizeof (player->key));
     m->header.seq = player->seq;
     pthread_mutex_unlock(&player_mutex);
 
     msg_pack(m, buf);
-
     write(sd, buf, sizeof(struct msg));
 }
 
@@ -125,10 +130,10 @@ void event_disconnect_client(void)
 void event_connect_ask(void)
 {
     struct msg msg;
-
+    char *nick = getenv ("USER");
     msg.type = MSGTYPE_CONNECT_ASK;
     /* TODO: get nick from config or args. */
-    strncpy((char *) msg.event.connect_ask.nick, "somenick", NICK_MAX_LEN);
+    strncpy((char *) msg.event.connect_ask.nick, nick ? nick : "somenick", NICK_MAX_LEN);
 
     send_event(&msg);
 }
@@ -143,6 +148,7 @@ void event_connect_ok(struct msg *m)
            but map is changing during the game, thus client
            must load the map always from server.
         */
+        INFO ("recive permissive message from server, load map: %s\n", mapname);
         pthread_mutex_lock(&map_mutex);
         map = map_load(mapname);
         pthread_mutex_unlock(&map_mutex);
@@ -150,42 +156,46 @@ void event_connect_ok(struct msg *m)
             WARN("Map couldn't be loaded: %s. Trying to load it from server...\n",
                  mapname);
             /* TODO: call event_map_load_ask() which calls map_load(). */
-            quit(1);
+            quit (SIGHUP);
+            return;
         }
 
-        ui_notify_line_set("Connected with id: %u, map: %s.",
-                           m->event.connect_ok.id, (char *) mapname);
+        INFO ("Connected with key: " KEY_FORMAT ", map: %s\n",
+                           KEY_EXPAND (m->header.key), (char *) mapname);
 
         pthread_mutex_lock(&player_mutex);
-        player->id = m->event.connect_ok.id;
+        memcpy (player->key, m->header.key, sizeof (player->key));
+        player->connected = true;
         pthread_mutex_unlock(&player_mutex);
 
         /* TODO: move this call to event_map_load_finish() for example. */
+        ui_mngr = true;
         pthread_create(&ui_mngr_thread, &common_attr, ui_mngr_func, NULL);
     } else {
-        ui_notify_line_set("Connection failed.");
+        INFO ("connection failed\n");
     }
 }
 
 void event_connect_notify(struct msg *m)
 {
-    ui_notify_line_set("New player has been connected with nick: %s.",
+    INFO ("New player has been connected with nick: %s\n",
                        m->event.connect_notify.nick);
 }
 
 void event_disconnect_notify(struct msg *m)
 {
-    ui_notify_line_set("Player has been disconnected: %s.",
+    INFO ("Player has been disconnected: %s\n.",
                        m->event.disconnect_notify.nick);
 }
 
 void event_disconnect_server(struct msg *m)
 {
-    ui_notify_line_set("Server has been halted. Disconnecting...");
+    INFO ("Server has been halted. Disconnecting... (seq: %ld)",
+        m->header.seq);
     ui_refresh();
     sleep(3);
 
-    quit(1);
+    quit (SIGHUP);
 }
 
 void event_player_hit(struct msg *m)
@@ -232,7 +242,14 @@ void event_player_position(struct msg *m)
 void event_enemy_position(struct msg *m)
 {
     pthread_mutex_lock(&map_mutex);
-    map->objs[m->event.enemy_position.pos_y - 1][m->event.enemy_position.pos_x - 1] = MAP_PLAYER;
+    if (!m->event.enemy_position.pos_y || !m->event.enemy_position.pos_x ||
+        m->event.enemy_position.pos_y > map->height ||\
+           m->event.enemy_position.pos_x > map->width) {
+        WARN ("enemy position not in (%u, %u)\n", map->height, map->width);
+    } else {
+        map->objs[m->event.enemy_position.pos_y - 1]\
+            [m->event.enemy_position.pos_x - 1] = MAP_PLAYER;
+    }
     pthread_mutex_unlock(&map_mutex);
 }
 
@@ -353,86 +370,36 @@ void *ui_event_mngr_func(void *arg)
 /* Init ui backend. */
 void *ui_mngr_func(void *arg)
 {
+    ui_event_mngr = true;
     pthread_create(&ui_event_mngr_thread, &common_attr, ui_event_mngr_func, NULL);
 
     if(ui_init() == UI_ERROR) {
         WARN("UI couldn't init.\n");
     }
 
-    quit(1);
-}
-
-void *recv_mngr_func(void *arg)
-{
-    /* TODO: ticks_finish(). */
-    struct ticks *ticks;
-
-    sem_wait(&queue_mngr_sem);
-    sem_destroy(&queue_mngr_sem);
-
-    ticks = ticks_start();
-
-    while("zombies walk") {
-        uint8_t buf[sizeof(struct msg_batch)];
-        struct msg_batch msgbatch;
-        uint8_t *chunk, id;
-
-        if(recvfrom(sd, buf, sizeof(struct msg_batch), 0, NULL, NULL) < 0) {
-            perror("recvfrom");
-            continue;
-        }
-
-        msgbatch.size = (buf[0] * sizeof(struct msg));
-        memcpy(msgbatch.chunks, buf, msgbatch.size + 1);
-
-        pthread_mutex_lock(&msgqueue_mutex);
-        while((chunk = msg_batch_pop(&msgbatch)) != NULL) {
-            struct msg m;
-
-            msg_unpack(chunk, &m);
-            if(msgqueue_push(msgqueue, &m) == MSGQUEUE_ERROR) {
-                WARN("msgqueue_push: couldn't push data into queue.\n");
-            } else {
-                pthread_mutex_lock(&player_mutex);
-                player->seq++;
-                pthread_mutex_unlock(&player_mutex);
-            }
-        }
-
-        pthread_mutex_lock(&player_mutex);
-        id = player->id;
-        pthread_mutex_unlock(&player_mutex);
-
-        if(ticks_get_diff(ticks) > 1000 / FPS || !id) {
-            ticks_update(ticks);
-            pthread_cond_signal(&queue_mngr_cond);
-        }
-
-        pthread_mutex_unlock(&msgqueue_mutex);
-
-    }
-
-    return arg;
+    quit (SIGHUP);
+    return NULL;
 }
 
 void *queue_mngr_func(void *arg)
 {
+    struct ticks *ticks = ticks_start ();
     struct msg *m;
-
+    register uint16_t w, h;
+    register uint8_t o;
     while(1) {
-        uint16_t w, h;
 
-        sem_post(&queue_mngr_sem);
-
-        pthread_mutex_lock(&msgqueue_mutex);
-        pthread_cond_wait(&queue_mngr_cond, &msgqueue_mutex);
+        pthread_mutex_lock(&queue_mutex);
+        pthread_cond_wait(&queue_cond, &queue_mutex);
+        ticks_update (ticks);
 
         /* Clean map from players, bullets, bonuses and other objects. */
         if(map != NULL) {
+            /* lock map and go */
             pthread_mutex_lock(&map_mutex);
             for(h = 0; h < map->height; h++) {
                 for(w = 0; w < map->width; w++) {
-                    uint8_t o = map->objs[h][w];
+                    o = map->objs[h][w];
 
                     if(o == MAP_PLAYER || o == MAP_BULLET) {
                         map->objs[h][w] = MAP_EMPTY;
@@ -444,8 +411,25 @@ void *queue_mngr_func(void *arg)
 
         while((m = msgqueue_pop(msgqueue)) != NULL) {
             /* TODO: just fucking do it!. */
-            /* TODO: check player->id, if it's 0 than warn. */
-
+            /* check message key */
+            pthread_mutex_lock (&player_mutex);
+            if (!player->connected && m->type != MSGTYPE_CONNECT_OK) {
+                WARN ("outside package, handshake not completed. Type %s, seq %lu\n",\
+                     msgtype_str (m->type), m->header.seq);
+                m->type = MSGTYPE_NONE;
+            } else if (player->connected) {
+                if (memcmp (m->header.key, player->key, KEY_LEN)) {
+                    WARN ("receive message witout true key '" KEY_FORMAT ","\
+                           " Type %s, seq %lu\n", KEY_EXPAND (m->header.key),\
+                           msgtype_str (m->type), m->header.seq);
+                    m->type = MSGTYPE_NONE;
+                }
+            }
+            pthread_mutex_unlock (&player_mutex);
+            if (m->type != MSGTYPE_NONE) {
+                DEBUG ("receive msg, seq: %lu, type %s\n", m->header.seq,\
+                         msgtype_str (m->type));
+            }
             /* TODO: figure out how to return this case into switch.
                Problem in that we cann't start a game until
                map is not loaded
@@ -484,41 +468,87 @@ void *queue_mngr_func(void *arg)
             }
         }
 
-        pthread_mutex_unlock(&msgqueue_mutex);
-
-        ui_refresh();
+        pthread_mutex_unlock(&queue_mutex);
+        if (ticks_get_diff (ticks) > 1000 / FPS)
+            ui_refresh();
     }
+    ticks_finish (ticks);
 }
 
-void quit(int signum)
+void
+quit (int signum) {
+    WARN ("abnormal quit with signum %d\n", signum);
+    sem_post (&showflow);
+    INFO ("threads terminate\n");
+    if (ui_mngr)
+        pthread_cancel (ui_mngr_thread);
+    if (ui_event_mngr)
+        pthread_cancel (ui_event_mngr_thread);
+    pthread_cancel (queue_mngr_thread);
+}
+
+void
+loop ()
 {
-    if(signum > 0) {
-        pthread_cancel(recv_mngr_thread);
-        pthread_cancel(ui_mngr_thread);
-        pthread_cancel(ui_event_mngr_thread);
-        pthread_cancel(queue_mngr_thread);
+    uint8_t buf[sizeof (struct msg_batch)];
+    struct msg_batch msgbatch;
+    uint8_t *chunk;
+    struct msg m;
+    ssize_t recvsize;
+    size_t messages;
+    fd_set rfds;
+    struct timeval tv;
+    int rv;
+    /* begin */
+    event_connect_ask();
+    DEBUG ("entering main loop\n");
+    for (; sem_trywait (&showflow); ) {
+        /* without full blocking */
+        FD_ZERO (&rfds);
+        FD_SET (sd, &rfds);
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
+        rv = select (sd + 1, &rfds, NULL, NULL, &tv);
+        if (rv <= 0) {
+            if (rv < 0)
+                perror ("select");
+            continue;
+        }
+        /* recv data, select returns ok */
+        recvsize = recvfrom (sd, buf, sizeof (msgbatch), 0, NULL, NULL);
+        if (recvsize <= 0) {
+            perror ("recvfrom");
+            continue;
+        }
+        msgbatch.size = (buf[0] * sizeof (struct msg));
+        if (msgbatch.size > (size_t)recvsize) {
+            WARN ("recvfrom: defect in packet, size %u, received %ld\n",\
+                msgbatch.size, recvsize);
+            continue;
+        }
+        /* send to queue */
+        memcpy (msgbatch.chunks, buf, msgbatch.size + 1);
+
+        messages = 0u;
+        pthread_mutex_lock (&queue_mutex);
+        while ((chunk = msg_batch_pop (&msgbatch)) != NULL) {
+            if (!msg_unpack (chunk, &m)) {
+                WARN ("msg_unpack: packet malformed\n");
+            } else {
+                if (msgqueue_push (msgqueue, &m) == MSGQUEUE_ERROR) {
+                    WARN ("msgqueue_push: couldn't push data into queue\n");
+                } else {
+                    messages++;
+                }
+            }
+        }
+        pthread_mutex_unlock (&queue_mutex);
+        /* event to event_mngr, if new message is coming */
+        if (messages) {
+            pthread_cond_signal (&queue_cond);
+        }
     }
-
-    pthread_join(recv_mngr_thread, NULL);
-    pthread_join(ui_mngr_thread, NULL);
-    pthread_join(ui_event_mngr_thread, NULL);
-    pthread_join(queue_mngr_thread, NULL);
-
-    ui_free();
-    event_disconnect_client();
-
-    close(sd);
-    if(map != NULL) {
-        map_unload(map);
-    }
-    msgqueue_free(msgqueue);
-    player_free(player);
-    pthread_mutex_destroy(&msgqueue_mutex);
-    pthread_mutex_destroy(&map_mutex);
-    pthread_mutex_destroy(&player_mutex);
-    pthread_cond_destroy(&queue_mngr_cond);
-    pthread_attr_destroy(&common_attr);
-    pthread_exit(NULL);
+    DEBUG ("leave main loop\n");
 }
 
 int main(int argc, char **argv)
@@ -556,23 +586,60 @@ int main(int argc, char **argv)
     signal(SIGQUIT, quit);
 
     msgqueue = msgqueue_init();
-    player = player_init();
+    player = player_init(NULL);
+    if (!player)
+    {
+        perror ("malloc");
+        return 1;
+    }
+    pthread_mutex_init (&player_mutex, NULL);
+    pthread_mutex_init (&map_mutex, NULL);
+    pthread_mutex_init (&queue_mutex, NULL);
+    pthread_cond_init (&queue_cond, NULL);
 
-    pthread_mutex_init(&msgqueue_mutex, NULL);
-    pthread_mutex_init(&map_mutex, NULL);
-    pthread_mutex_init(&player_mutex, NULL);
-    pthread_cond_init(&queue_mngr_cond, NULL);
-    sem_init(&queue_mngr_sem, 0, 0);
+    sem_init (&showflow, 0, 0);
 
-    pthread_attr_init(&common_attr);
-    pthread_attr_setdetachstate(&common_attr, PTHREAD_CREATE_JOINABLE);
+    pthread_attr_init (&common_attr);
+    pthread_attr_setdetachstate (&common_attr, PTHREAD_CREATE_JOINABLE);
 
-    pthread_create(&queue_mngr_thread, &common_attr, queue_mngr_func, NULL);
-    pthread_create(&recv_mngr_thread, &common_attr, recv_mngr_func, NULL);
+    pthread_create (&queue_mngr_thread, &common_attr, queue_mngr_func, NULL);
 
-    event_connect_ask();
+    /* main loop */
+    loop ();
+    /* deinit */
 
-    quit(0);
+    INFO ("threads wait\n");
+    if (ui_mngr)
+        pthread_join (ui_mngr_thread, NULL);
+    if (ui_event_mngr)
+        pthread_join (ui_event_mngr_thread, NULL);
+    pthread_join (queue_mngr_thread, NULL);
 
+    INFO ("free ui\n");
+    ui_free ();
+
+    INFO ("send disconnect info\n");
+    event_disconnect_client ();
+
+    if (map != NULL) {
+        INFO ("unload map\n");
+        map_unload (map);
+    }
+
+    msgqueue_free (msgqueue);
+
+    player_free (player);
+
+    pthread_mutex_destroy (&queue_mutex);
+    pthread_mutex_destroy (&map_mutex);
+    pthread_mutex_destroy (&player_mutex);
+
+    pthread_cond_destroy (&queue_cond);
+    pthread_attr_destroy (&common_attr);
+
+    INFO ("fully exit\n");
+    pthread_exit (NULL);
+    /* TODO */
     return 0;
 }
+/* vim:set expandtab: */
