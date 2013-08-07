@@ -681,13 +681,6 @@ void quit(int signum)
     pthread_exit(NULL);
 }
 
-/* FIXME: Veri important
- * hack with copy key to first bytes in message must be replaced
- * additionally, this must be fixed in recv_mngr_func (client.c)
- * fukken c
- * packed message:
- *    4 bytes $seq | KEY_LEN $header.key
- */
 void
 send_to_player (const void *buf, size_t len, struct player *player) {
     DEBUG ("send batch to player %d, seq %u\n", player->id, player->seq);
