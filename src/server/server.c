@@ -403,7 +403,7 @@ void bullets_proceed(struct bullets *bullets)
             }
 
             if(b->y <= 0 || b->x <= 0 ||
-               b->y >= map->height || b->x >= map->width ||
+               b->y > map->height || b->x > map->width ||
                map->objs[b->y - 1][b->x - 1] == MAP_WALL) {
                 bullet = bullet->next;
                 bullet_explode (b);
