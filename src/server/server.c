@@ -59,10 +59,9 @@ int *fd_families = NULL;
 
 struct players_slots *players_init(void)
 {
-    struct players_slots *slots;
+    struct players_slots *slots = {0};
 
     slots = calloc(1, sizeof(struct players_slots));
-    slots->count = 0;
 
     return slots;
 }
@@ -102,10 +101,8 @@ struct player *players_occupy(struct players_slots *slots,\
             while (ii--) {
                 /* FIXME: bla-bla key generation */
                 slots->player[i].key[ii] = (uint8_t)\
-                    (((time_t)(i + slots->count) << 2) *\
-                     ctime ^\
-                     (ctime >> slots->player[i].key[ii + 3 % KEY_LEN])) ^\
-                     slots->player[i].nick[ ii | i % NICK_MAX_LEN];
+                    ((i + slots->count) ^ (ctime >> (i & ii)) ^ (ii)\
+                     ^ (nick[ctime % (NICK_MAX_LEN - 1)]));
             }
             return &slots->player[i];
         }
@@ -195,7 +192,7 @@ void bullet_explode(struct bullet *b)
         i = 0u;
 
         /* lave map */
-        if(w <= 0 || h <= 0 || w > map->width + 1 || h > map->height + 1) {
+        if(w <= 0 || h <= 0 || w > map->width || h > map->height) {
             break;
         }
 
@@ -582,10 +579,9 @@ void *recv_mngr_func(void *arg)
 
 void *queue_mngr_func(void *arg)
 {
-    struct msg_queue_node *qnode;
+    struct msg_queue_node *qnode = NULL;
     register size_t i;
 
-    /* FIXME: nahui */
     sleep(1);
 
     while("teh internetz exists") {
@@ -593,6 +589,7 @@ void *queue_mngr_func(void *arg)
 
         /* Handle messages(events). */
         while((qnode = msgqueue_pop(msgqueue)) != NULL) {
+            qnode->player = NULL;
             /* TODO: check seq. */
             DEBUG ("incoming msg type %s, key '" KEY_FORMAT "'\n",\
                  msgtype_str (qnode->data->type),\
@@ -602,7 +599,8 @@ void *queue_mngr_func(void *arg)
             for (i = 0u; i < MAX_PLAYERS; i++) {
                 if (!players->player[i].nick)
                     continue;
-                if (!memcmp (players->player[i].key, qnode->data->header.key,\
+                if (!memcmp (players->player[i].key,\
+                            qnode->data->header.key,\
                             sizeof (qnode->data->header.key))) {
                     qnode->player = &players->player[i];
                     break;
