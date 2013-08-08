@@ -182,6 +182,15 @@ static void msgtype_map_explode_pack(struct msg *m, uint8_t *buf)
     buf += 2;
 }
 
+static void msgtype_rtt_pack(struct msg *m, uint8_t *buf)
+{
+    pack_int32(buf, htons(m->event.rtt.sec));
+    buf += 4;
+    pack_int32(buf, htons(m->event.rtt.nsec));
+    buf += 4;
+    
+}
+
 /* ... and for unpacking. */
 static void msgtype_walk_unpack(uint8_t *buf, struct msg *m)
 {
@@ -270,6 +279,14 @@ static void msgtype_map_explode_unpack(uint8_t *buf, struct msg *m)
     buf += 2;
 }
 
+static void msgtype_rtt_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.rtt.sec = htons(unpack_int32(buf));
+    buf += 4;
+    m->event.rtt.sec = htons(unpack_int32(buf));
+    buf += 4;
+}
+
 /* Because I hate switches and all these condition statements I prefer to use
  * calls table. It must be synced with enum declared in cdata.h.
  */
@@ -289,6 +306,7 @@ intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_disconnect_notify_pack,
     (intptr_t) msgtype_on_bonus_pack,
     (intptr_t) msgtype_map_explode_pack,
+    (intptr_t) msgtype_rtt_pack
 };
 
 intptr_t msgtype_unpack_funcs[] = {
@@ -306,7 +324,8 @@ intptr_t msgtype_unpack_funcs[] = {
     (intptr_t) msgtype_disconnect_client_unpack,
     (intptr_t) msgtype_disconnect_notify_unpack,
     (intptr_t) msgtype_on_bonus_unpack,
-    (intptr_t) msgtype_map_explode_unpack
+    (intptr_t) msgtype_map_explode_unpack,
+    (intptr_t) msgtype_rtt_unpack
 };
 
 /* General packing/unpacking functions. */

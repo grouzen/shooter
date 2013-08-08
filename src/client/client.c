@@ -277,6 +277,29 @@ void event_walk(void)
     send_event(&msg);
 }
 
+void event_receive_rtt(struct msg *m)
+{
+    struct timespec tp;
+
+    
+}
+
+void event_send_rtt(void)
+{
+    struct msg msg;
+    struct timespec tp;
+
+    if(!clock_gettime(CLOCK_REALTIME, &tp)) {
+        msg.event.rtt.sec = tp.tv_sec;
+        msg.event.rtt.nsec = tp.tv_nsec;
+        msg.type = MSGTYPE_RTT;
+        
+        send_event(&msg);
+    } else {
+        perror("clock_gettime");
+    }
+}
+
 void *ui_event_mngr_func(void *arg)
 {
     while(1) {
@@ -286,9 +309,11 @@ void *ui_event_mngr_func(void *arg)
 
         req.tv_sec = 1000 / FPS / 1000;
         req.tv_nsec = 1000 / FPS * 1000000;
-
+        
         nanosleep(&req, NULL);
 
+        event_send_rtt();
+        
         ui_event = ui_get_event();
 
         pthread_mutex_lock(&player_mutex);
@@ -475,8 +500,7 @@ void *queue_mngr_func(void *arg)
     ticks_finish (ticks);
 }
 
-void
-quit (int signum) {
+void quit (int signum) {
     WARN ("abnormal quit with signum %d\n", signum);
     sem_post (&showflow);
     INFO ("threads terminate\n");
@@ -487,8 +511,7 @@ quit (int signum) {
     pthread_cancel (queue_mngr_thread);
 }
 
-void
-loop ()
+void loop ()
 {
     uint8_t buf[sizeof (struct msg_batch)];
     struct msg_batch msgbatch;

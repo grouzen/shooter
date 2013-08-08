@@ -336,6 +336,7 @@ void event_shoot(struct msg_queue_node *qnode)
 
 void event_walk(struct msg_queue_node *qnode)
 {
+    struct player *p = qnode->player;
     uint16_t px, py;
 
     px = p->pos_x;
