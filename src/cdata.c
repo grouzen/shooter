@@ -52,6 +52,32 @@ struct armor armors[] = {
 };
 
 /* TODO: pack_float(). */
+static void pack_int64(uint8_t *buf, uint64_t x)
+{
+    *buf++ = x >> 56;
+    *buf++ = x >> 48;
+    *buf++ = x >> 40;
+    *buf++ = x >> 32;
+    *buf++ = x >> 24;
+    *buf++ = x >> 16;
+    *buf++ = x >> 8;
+    *buf++ = x;
+}
+
+static uint64_t unpack_int64(uint8_t *buf)
+{
+    return
+        (buf[0] << 24) |
+        (buf[1] << 16) |
+        (buf[2] <<  8) |
+        (buf[3]      ) |
+        (buf[4] << 24) |
+        (buf[5] << 16) |
+        (buf[6] <<  8) |
+        (buf[7]      );
+    
+}
+
 static void pack_int32(uint8_t *buf, uint32_t x)
 {
     *buf++ = x >> 24;
@@ -65,6 +91,7 @@ static uint32_t unpack_int32(uint8_t *buf)
     return (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
 }
 
+/* TODO: rename to pack/unpack_int16(). */
 static void pack16_int(uint8_t *buf, uint16_t x)
 {
     *buf++ = x >> 8;
@@ -173,6 +200,12 @@ static void msgtype_map_explode_pack(struct msg *m, uint8_t *buf)
     buf += 2;
 }
 
+static void msgtype_rtt_pack(struct msg *m, uint8_t *buf)
+{
+    pack16_int(buf, htons(m->event.rtt.msec));
+    buf += 2;
+}
+
 /* ... and for unpacking. */
 static void msgtype_walk_unpack(uint8_t *buf, struct msg *m)
 {
@@ -262,6 +295,12 @@ static void msgtype_map_explode_unpack(uint8_t *buf, struct msg *m)
     buf += 2;
 }
 
+static void msgtype_rtt_unpack(uint8_t *buf, struct msg *m)
+{
+    m->event.rtt.msec = ntohs(unpack16_int(buf));
+    buf += 2;
+}
+
 /* Because I hate switches and all these condition statements I prefer to use
  * calls table. It must be synced with enum declared in cdata.h.
  */
@@ -280,6 +319,7 @@ intptr_t msgtype_pack_funcs[] = {
     (intptr_t) msgtype_disconnect_notify_pack,
     (intptr_t) msgtype_on_bonus_pack,
     (intptr_t) msgtype_map_explode_pack,
+    (intptr_t) msgtype_rtt_pack
 };
 
 intptr_t msgtype_unpack_funcs[] = {
@@ -296,7 +336,8 @@ intptr_t msgtype_unpack_funcs[] = {
     (intptr_t) msgtype_disconnect_client_unpack,
     (intptr_t) msgtype_disconnect_notify_unpack,
     (intptr_t) msgtype_on_bonus_unpack,
-    (intptr_t) msgtype_map_explode_unpack
+    (intptr_t) msgtype_map_explode_unpack,
+    (intptr_t) msgtype_rtt_unpack
 };
 
 /* General packing/unpacking functions. */

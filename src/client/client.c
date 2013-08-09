@@ -29,6 +29,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <pthread.h>
@@ -260,8 +261,38 @@ void event_walk(void)
     send_event(&msg);
 }
 
+void event_send_rtt(void)
+{
+    struct msg msg;
+    struct timeval t;
+    
+    if(gettimeofday(&t, NULL) >= 0) {
+        msg.type = MSGTYPE_RTT;
+        msg.event.rtt.msec = (((uint64_t) t.tv_sec) * 1000) +
+            (((uint64_t) t.tv_usec) / 1000);
+        
+        send_event(&msg);
+    }
+}
+
+void event_receive_rtt(struct msg *m)
+{
+    struct timeval t;
+
+    if(gettimeofday(&t, NULL) >= 0) {
+        uint16_t cmsec = (((uint64_t) t.tv_sec) * 1000) +
+            (((uint64_t) t.tv_usec) / 1000);
+
+        ui_notify_line_set("Ping: %u msec.", cmsec - m->event.rtt.msec);
+    }
+}
+
+#define RTT_RATE (FPS * 1)
+
 void *ui_event_mngr_func(void *arg)
 {
+    int rtt_rate_count = 0;
+
     while(1) {
         int ui_event;
         struct timespec req;
@@ -272,6 +303,13 @@ void *ui_event_mngr_func(void *arg)
 
         nanosleep(&req, NULL);
 
+        if(rtt_rate_count >= RTT_RATE) {
+            rtt_rate_count = 0;
+            event_send_rtt();
+        }
+ 
+        rtt_rate_count++;
+        
         ui_event = ui_get_event();
 
         pthread_mutex_lock(&player_mutex);
@@ -478,6 +516,9 @@ void *queue_mngr_func(void *arg)
                 break;
             case MSGTYPE_MAP_EXPLODE:
                 event_map_explode(m);
+                break;
+            case MSGTYPE_RTT:
+                event_receive_rtt(m);
                 break;
             default:
                 break;

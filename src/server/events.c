@@ -356,7 +356,6 @@ void event_shoot(struct msg_queue_node *qnode)
 
 void event_walk(struct msg_queue_node *qnode)
 {
-    DEBUG("event_walk(): qnode->data->header.id: %d\n", qnode->data->header.id);
     struct players_slot *pslot = players->slots[qnode->data->header.id];
     struct player *p = NULL;
 
@@ -395,4 +394,13 @@ void event_walk(struct msg_queue_node *qnode)
     }
     
     event_player_position(p);
+}
+
+void event_rtt(struct msg_queue_node *qnode)
+{
+    struct player *p = players->slots[qnode->data->header.id]->p;
+
+    DEBUG("Ping from player: %u.\n", p->id);
+    
+    msg_batch_push(&(p->msgbatch), qnode->data);
 }

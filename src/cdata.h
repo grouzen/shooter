@@ -115,7 +115,8 @@ enum {
     MSGTYPE_DISCONNECT_CLIENT,
     MSGTYPE_DISCONNECT_NOTIFY,
     MSGTYPE_ON_BONUS,
-    MSGTYPE_MAP_EXPLODE
+    MSGTYPE_MAP_EXPLODE,
+    MSGTYPE_RTT
 };
 
 struct msgtype_walk {
@@ -182,11 +183,16 @@ struct msgtype_map_explode {
     uint16_t h;
 };
 
+struct msgtype_rtt {
+    uint16_t msec;
+};
+
 /*
  * General message structures
  */
 struct msg_header {
     uint32_t seq;
+    /* TODO: replace with key. */
     uint8_t id;
 };
 
@@ -208,6 +214,7 @@ struct msg {
         struct msgtype_disconnect_notify disconnect_notify;
         struct msgtype_on_bonus on_bonus;
         struct msgtype_map_explode map_explode;
+        struct msgtype_rtt rtt;
     } event;
 };
 

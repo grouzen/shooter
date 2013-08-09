@@ -38,5 +38,6 @@ void event_disconnect_client(struct msg_queue_node*);
 void event_connect_ask(struct msg_queue_node*);
 void event_shoot(struct msg_queue_node*);
 void event_walk(struct msg_queue_node*);
+void event_rtt(struct msg_queue_node*);
 
 #endif

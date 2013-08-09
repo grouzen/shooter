@@ -633,6 +633,9 @@ void *queue_mngr_func(void *arg)
             case MSGTYPE_SHOOT:
                 event_shoot(qnode);
                 break;
+            case MSGTYPE_RTT:
+                event_rtt(qnode);
+                break;
             default:
                 WARN("Unknown event\n");
                 break;
